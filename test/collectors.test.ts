@@ -163,16 +163,18 @@ test('settings patch clamps values and keeps secrets', () => {
   const base = applyPatch(
     {
       claudeDir: '/c', codexDir: '/x', historyDays: 30, pollSeconds: 15, subscriptionPollSeconds: 300, warnPercent: 75, criticalPercent: 90,
-      notifications: true, pet: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' }, suggestModel: 'haiku', claudeBin: '', codexBin: '', prices: {},
+      notifications: true, pet: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' }, suggestModel: 'haiku', claudeBin: '', codexBin: '', prices: {},
       anthropicAdminKey: 'k', openaiAdminKey: '', launchAtLogin: false, apiToken: 't', port: 8787, remoteAccess: false, machineName: 'm',
       instanceId: 'i', hosts: [], remotePassword: null, sessionSecret: 's', publicTunnel: false, tunnelProvider: 'localhost.run', ngrokDomain: '', ngrokAuthtoken: '', publicUrl: '', googleClientId: '', googleOwners: [],
     },
-    { subscriptionPollSeconds: 5, pet: { size: 9999, character: 'claude', codexPet: 'whale' }, suggestModel: 'bad model; rm -rf /' },
+    { subscriptionPollSeconds: 5, pet: { size: 9999, character: 'claude', claudePet: 'frog', codexPet: 'whale' }, suggestModel: 'bad model; rm -rf /' },
   );
   assert.equal(base.subscriptionPollSeconds, 60);
   assert.equal(base.pet.size, 320);
   assert.equal(base.pet.character, 'claude');
   assert.equal(base.pet.codexPet, 'whale');
+  assert.equal(base.pet.claudePet, 'frog');
+  assert.equal(applyPatch(base, { pet: { claudePet: 'dragon' as never } }).pet.claudePet, 'frog', 'unknown pets are ignored');
   assert.equal(base.suggestModel, 'haiku', 'rejects odd model names');
   assert.equal(base.anthropicAdminKey, 'k');
   assert.equal(applyPatch(base, { anthropicAdminKey: '' }).anthropicAdminKey, '');

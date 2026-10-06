@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { CodexPet, PetCharacter, PublicSettings, RemoteHostConfig, SettingsPatch, TunnelProvider } from '../shared/types';
+import type { ClaudePet, CodexPet, PetCharacter, PublicSettings, RemoteHostConfig, SettingsPatch, TunnelProvider } from '../shared/types';
 
 export interface Config {
   claudeDir: string;
@@ -13,7 +13,7 @@ export interface Config {
   warnPercent: number;
   criticalPercent: number;
   notifications: boolean;
-  pet: { enabled: boolean; size: number; character: PetCharacter; codexPet: CodexPet };
+  pet: { enabled: boolean; size: number; character: PetCharacter; claudePet: ClaudePet; codexPet: CodexPet };
   /** model alias passed to `claude -p --model` for next-step suggestions */
   suggestModel: string;
   /** explicit CLI paths when they are not on PATH (e.g. GUI launch without a login shell) */
@@ -62,7 +62,7 @@ function defaults(): Config {
     warnPercent: 75,
     criticalPercent: 90,
     notifications: true,
-    pet: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' },
+    pet: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' },
     suggestModel: 'haiku',
     claudeBin: '',
     codexBin: '',
@@ -180,6 +180,7 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
     if (typeof p.pet.enabled === 'boolean') next.pet.enabled = p.pet.enabled;
     next.pet.size = clamp(p.pet.size, 80, 320, cfg.pet.size);
     if (isCharacter(p.pet.character)) next.pet.character = p.pet.character;
+    if (p.pet.claudePet === 'crab' || p.pet.claudePet === 'frog') next.pet.claudePet = p.pet.claudePet;
     if (p.pet.codexPet === 'bot' || p.pet.codexPet === 'whale' || p.pet.codexPet === 'frog') next.pet.codexPet = p.pet.codexPet;
   }
   if (typeof p.suggestModel === 'string' && /^[\w.:-]{1,64}$/.test(p.suggestModel.trim())) next.suggestModel = p.suggestModel.trim();
@@ -242,6 +243,7 @@ function migratePet(pet: Record<string, unknown>): Config['pet'] {
     enabled: pet.enabled !== false,
     size: typeof pet.size === 'number' ? pet.size : 140,
     character,
+    claudePet: pet.claudePet === 'frog' ? 'frog' : 'crab',
     codexPet,
   };
 }

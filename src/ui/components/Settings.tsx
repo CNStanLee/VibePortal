@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CodexPet, PublicSettings, ServerInfo, SettingsPatch } from '../../shared/types';
+import type { ClaudePet, CodexPet, PublicSettings, ServerInfo, SettingsPatch } from '../../shared/types';
 import { api, desktop, getToken } from '../api';
 import { useT } from '../i18n';
 import { RemoteSettings } from './Remote';
@@ -97,6 +97,12 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
               <option value="duo">{t.duo}</option>
               <option value="claude">{t.crab}</option>
               <option value="codex">{t.codexOnly}</option>
+            </select>
+          </Field>
+          <Field label={t.claudePet}>
+            <select value={v.pet.claudePet} onChange={(e) => set({ pet: { claudePet: e.target.value as ClaudePet } })}>
+              <option value="crab">{t.crabPet}</option>
+              <option value="frog">{t.frog}</option>
             </select>
           </Field>
           <Field label={t.codexPet}>

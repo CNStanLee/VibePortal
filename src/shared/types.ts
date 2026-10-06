@@ -249,6 +249,8 @@ export type PetMood = 'idle' | 'working' | 'waiting' | 'alert' | 'sleeping' | 'h
 export type PetCharacter = 'duo' | 'claude' | 'codex';
 /** the pet that represents Codex */
 export type CodexPet = 'bot' | 'whale' | 'frog';
+/** the pet that represents Claude Code */
+export type ClaudePet = 'crab' | 'frog';
 
 export interface PetState {
   mood: PetMood;
@@ -280,7 +282,7 @@ export interface Snapshot {
   pet: PetState;
   /** per-provider pets: the crab follows Claude, the whale girl follows ChatGPT/Codex */
   pets: Record<Provider, PetState>;
-  petConfig: { enabled: boolean; size: number; character: PetCharacter; codexPet: CodexPet };
+  petConfig: { enabled: boolean; size: number; character: PetCharacter; claudePet: ClaudePet; codexPet: CodexPet };
   historyDays: number;
   machineName: string;
   remotes: RemoteHostSnapshot[];
@@ -307,7 +309,7 @@ export interface PublicSettings {
   warnPercent: number;
   criticalPercent: number;
   notifications: boolean;
-  pet: { enabled: boolean; size: number; character: PetCharacter; codexPet: CodexPet };
+  pet: { enabled: boolean; size: number; character: PetCharacter; claudePet: ClaudePet; codexPet: CodexPet };
   suggestModel: string;
   anthropicAdminKeySet: boolean;
   openaiAdminKeySet: boolean;

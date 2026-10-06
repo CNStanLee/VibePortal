@@ -1043,11 +1043,30 @@ html.pet-page body {
   z-index: 40;
 }
 .pet-unit {
+  /* the closed width: an open card is wider, but the pet stays where it was */
+  --closed-w: 168px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  width: 168px;
+  width: var(--closed-w);
+}
+.pet-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+/* the stage is anchored bottom-right: the card grows up and to the left, the pet under it keeps its place */
+.pet-unit.open .pet-body {
+  width: var(--closed-w);
+  align-self: flex-end;
+}
+.pet-unit.open .pet-bubble::after {
+  left: auto;
+  right: calc(var(--closed-w) / 2 - 5px);
+  transform: rotate(45deg);
 }
 /* in the page the bubble widens smoothly (the desktop window is refitted instead) */
 .pet-floating .pet-unit {
@@ -1186,7 +1205,7 @@ html.pet-page body {
 }
 /* a bubble being opened pops up from the pet */
 .pet-unit.open .pet-bubble {
-  transform-origin: 50% 100%;
+  transform-origin: calc(100% - var(--closed-w) / 2) 100%;
   animation: bubble-pop 0.42s var(--ease-spring);
 }
 .pet-bubble::after {
@@ -3182,8 +3201,8 @@ html.pet-page body {
 
 /* small phones: the floating pet is smaller so it covers less */
 @media (max-width: 420px) {
-  .pet-floating .pet-unit:not(.open) {
-    width: 132px;
+  .pet-floating .pet-unit {
+    --closed-w: 132px;
   }
   .pet-floating .pet-unit:not(.open) .pet-bubble {
     font-size: 11px;
@@ -4064,8 +4083,8 @@ html.pet-page body {
 
 /* pocket pet on phones: narrow collapsed bubbles, labels stay legible */
 @media (max-width: 760px) {
-  .pet-floating .pet-unit:not(.open) {
-    width: 104px;
+  .pet-floating .pet-unit {
+    --closed-w: 104px;
   }
   .pet-floating .pet-unit:not(.open) .pet-bubble {
     font-size: 10.5px;
@@ -4104,7 +4123,9 @@ html.pet-page body {
     position: fixed;
     left: 10px;
     right: 10px;
-    bottom: calc(190px + env(safe-area-inset-bottom));
+    /* just above the pet (set from where it is), or below it when it sits near the top */
+    bottom: var(--card-bottom, calc(190px + env(safe-area-inset-bottom)));
+    top: var(--card-top, auto);
     width: auto;
     max-height: 58vh;
     overflow: auto;

@@ -248,7 +248,7 @@ function snapshot(): Snapshot {
     tasks,
     pet: { mood: 'working', message: '3 tasks running' },
     pets: { claude: { mood: 'working', message: '2 tasks running' }, openai: { mood: 'working', message: 'Faster data loader' } },
-    petConfig: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' },
+    petConfig: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' },
     historyDays: 30,
     machineName: 'workstation',
     remotes: [
@@ -347,7 +347,7 @@ const settings: PublicSettings = {
   warnPercent: 75,
   criticalPercent: 90,
   notifications: true,
-  pet: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' },
+  pet: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' },
   suggestModel: 'haiku',
   anthropicAdminKeySet: false,
   openaiAdminKeySet: false,

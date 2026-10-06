@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
     if (prepared === lang + theme) return;
     const p = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
     await p.loadURL(`${ui}?demo`);
-    await p.webContents.executeJavaScript(`localStorage.setItem('vp.lang','${lang}'); localStorage.setItem('vp.theme','${theme}'); localStorage.removeItem('vp.petPos'); 1`);
+    await p.webContents.executeJavaScript(`localStorage.setItem('vp.lang','${lang}'); localStorage.setItem('vp.theme','${theme}'); localStorage.removeItem('vp.petPos2'); 1`);
     p.destroy();
     prepared = lang + theme;
   };

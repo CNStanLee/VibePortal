@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CodexPet, PetMood, ProviderSnapshot, QuotaWindow, Snapshot, TaskInfo } from '../../shared/types';
+import type { ClaudePet, CodexPet, PetMood, ProviderSnapshot, QuotaWindow, Snapshot, TaskInfo } from '../../shared/types';
 import { desktop, dismissedTasks } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
@@ -69,19 +69,20 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     }
   };
   const [historyId, setHistoryId] = useState<string | null>(null);
-  const [floatPos, setFloatPos] = useState<{ x: number; y: number } | null>(() => loadFloatPos());
+  // where the floating pet was dropped, as its bottom-right corner: opening a card grows the stage up, not down
+  const [floatPos, setFloatPos] = useState<FloatPos | null>(() => loadFloatPos());
   // where a floating-pet drag has got to: moved straight on the element, committed on release
   const dragPos = useRef<{ x: number; y: number } | null>(null);
   const drag = useRef<{ sx: number; sy: number; wx: number; wy: number; slop: number; moved: boolean; ready: boolean } | null>(null);
   const lastClick = useRef(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const bridge = desktop();
-  const cfg = snapshot?.petConfig ?? { enabled: true, size: 140, character: 'duo' as const, codexPet: 'bot' as const };
+  const cfg = snapshot?.petConfig ?? { enabled: true, size: 140, character: 'duo' as const, claudePet: 'crab' as const, codexPet: 'bot' as const };
   // phones get a pocket-sized pet (and fewer clones, below)
   const phone = variant === 'floating' && typeof window !== 'undefined' && window.innerWidth <= 760;
   const size = variant === 'floating' ? Math.round(cfg.size * (phone ? 0.45 : 0.7)) : cfg.size;
 
-  const units = useMemo(() => buildUnits(snapshot, cfg.character, cfg.codexPet), [snapshot, cfg.character, cfg.codexPet, dismissTick]);
+  const units = useMemo(() => buildUnits(snapshot, cfg.character, cfg.claudePet ?? 'crab', cfg.codexPet), [snapshot, cfg.character, cfg.claudePet, cfg.codexPet, dismissTick]);
   const clones = units.filter((u) => u.task);
   const maxClones = phone ? 2 : MAX_CLONES;
   const overflow = clones.length > maxClones ? clones.length - maxClones : 0;
@@ -143,11 +144,16 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     }
   };
   const finishMove = () => {
-    stageRef.current?.classList.remove('dragging');
+    const el = stageRef.current;
+    el?.classList.remove('dragging');
     if (variant === 'window') return bridge?.petDragEnd();
-    const p = dragPos.current;
+    const moved = dragPos.current;
     dragPos.current = null;
-    if (!p) return;
+    if (!moved || !el) return;
+    const r = el.getBoundingClientRect();
+    const p = clampFloat({ right: window.innerWidth - r.right, bottom: window.innerHeight - r.bottom });
+    // the drag moved the stage by left / top: hand it back to the bottom-right anchor
+    Object.assign(el.style, { left: 'auto', top: 'auto', right: `${p.right}px`, bottom: `${p.bottom}px` });
     setFloatPos(p);
     saveFloatPos(p);
   };
@@ -191,7 +197,27 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     setOpen((o) => (o === key ? null : key));
   };
 
-  const style: React.CSSProperties = variant === 'floating' && floatPos ? { left: floatPos.x, top: floatPos.y, right: 'auto', bottom: 'auto' } : {};
+  const style: React.CSSProperties = variant === 'floating' && floatPos ? { left: 'auto', top: 'auto', right: floatPos.right, bottom: floatPos.bottom } : {};
+
+  // phones: the open card sits just above the pet (below it when the pet is up near the top)
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    if (!phone || !el) return;
+    const hit = open ? el.querySelector('.pet-unit.open .pet-hit') : null;
+    if (!hit) {
+      el.style.removeProperty('--card-bottom');
+      el.style.removeProperty('--card-top');
+      return;
+    }
+    const r = hit.getBoundingClientRect();
+    if (r.top > 220) {
+      el.style.setProperty('--card-bottom', `${Math.round(window.innerHeight - r.top + 6)}px`);
+      el.style.removeProperty('--card-top');
+    } else {
+      el.style.setProperty('--card-bottom', 'auto');
+      el.style.setProperty('--card-top', `${Math.round(r.bottom + 6)}px`);
+    }
+  }, [open, phone, floatPos]);
 
   // minimized (floating pet only, remembered per browser): just a small crab button
   if (variant === 'floating' && mini) {
@@ -281,6 +307,8 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
                 )}
               </Fold>
             </div>
+            {/* the pet keeps its place when its card opens: the card grows up and to the left */}
+            <div className="pet-body">
             <div
               className="pet-hit"
               onPointerDown={onPointerDown}
@@ -303,6 +331,7 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
               {provider && provider.quotas.length > 0 && <MiniBars provider={provider} size={size} />}
             </div>
             <PetLabel unit={u} scene={scene} />
+            </div>
           </div>
         );
       })}
@@ -574,11 +603,11 @@ function crabScene(u: Unit, index: number): CrabScene | undefined {
   return IDLE[(Math.floor(Date.now() / 90_000) + index) % IDLE.length];
 }
 
-function buildUnits(snapshot: Snapshot | null, character: 'duo' | 'claude' | 'codex', codexPet: CodexPet): Unit[] {
+function buildUnits(snapshot: Snapshot | null, character: 'duo' | 'claude' | 'codex', claudePet: ClaudePet, codexPet: CodexPet): Unit[] {
   const dismissed = dismissedTasks();
   const now = Date.now();
-  // clones always follow the task's service: crab for Claude Code, the Codex pet for Codex
-  const speciesFor = (p: 'claude' | 'openai'): MascotKind => (p === 'openai' ? codexPet : 'crab');
+  // clones always follow the task's service: the Claude pet for Claude Code, the Codex pet for Codex
+  const speciesFor = (p: 'claude' | 'openai'): MascotKind => (p === 'openai' ? codexPet : claudePet);
   const providerFor = (t: TaskInfo): 'claude' | 'openai' => t.provider ?? (t.kind === 'codex' ? 'openai' : 'claude');
   const units: Unit[] = [];
   for (const task of snapshot?.tasks ?? []) {
@@ -610,16 +639,22 @@ function buildUnits(snapshot: Snapshot | null, character: 'duo' | 'claude' | 'co
   return [home(character === 'codex' ? 'openai' : 'claude')];
 }
 
-const FLOAT_KEY = 'vp.petPos';
-function loadFloatPos(): { x: number; y: number } | null {
+// v2: the bottom-right corner (the old top-left positions are dropped)
+const FLOAT_KEY = 'vp.petPos2';
+type FloatPos = { right: number; bottom: number };
+function loadFloatPos(): FloatPos | null {
   try {
     const p = JSON.parse(localStorage.getItem(FLOAT_KEY) ?? 'null');
-    return p && typeof p.x === 'number' ? clampToViewport(p.x, p.y) : null;
+    return p && typeof p.right === 'number' && typeof p.bottom === 'number' ? clampFloat(p) : null;
   } catch {
     return null;
   }
 }
-function saveFloatPos(p: { x: number; y: number } | null) {
+/** keeps a dropped pet on screen: at least its corner, 120px of it */
+function clampFloat(p: FloatPos): FloatPos {
+  return { right: Math.round(Math.max(0, Math.min(window.innerWidth - 120, p.right))), bottom: Math.round(Math.max(0, Math.min(window.innerHeight - 120, p.bottom))) };
+}
+function saveFloatPos(p: FloatPos | null) {
   try {
     if (p) localStorage.setItem(FLOAT_KEY, JSON.stringify(p));
   } catch {

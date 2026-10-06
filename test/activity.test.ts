@@ -102,7 +102,7 @@ test('remote auth: password sessions, public requests never accept the API token
   const { authorized, issueSession, validSession, LoginLimiter, authMode } = await import('../src/server/auth');
   const base: any = {
     claudeDir: '/c', codexDir: '/x', historyDays: 30, pollSeconds: 15, subscriptionPollSeconds: 300, warnPercent: 75, criticalPercent: 90,
-    notifications: true, pet: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' }, suggestModel: 'haiku', claudeBin: '', codexBin: '', prices: {},
+    notifications: true, pet: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' }, suggestModel: 'haiku', claudeBin: '', codexBin: '', prices: {},
     anthropicAdminKey: '', openaiAdminKey: '', launchAtLogin: false, apiToken: 'tok', port: 8787, remoteAccess: true, machineName: 'm',
     instanceId: 'i', hosts: [], remotePassword: null, sessionSecret: 's0', publicTunnel: false, tunnelProvider: 'localhost.run', ngrokDomain: '', ngrokAuthtoken: '', publicUrl: '', googleClientId: '', googleOwners: [],
   };

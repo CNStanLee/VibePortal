@@ -145,7 +145,7 @@ function demoSnapshot(): Snapshot {
     tasks,
     pet: { mood: 'working', message: '' },
     pets: { claude: { mood: 'working', message: '' }, openai: { mood: 'working', message: '' } },
-    petConfig: { enabled: true, size: 120, character: 'duo', codexPet: 'bot' },
+    petConfig: { enabled: true, size: 120, character: 'duo', claudePet: 'crab', codexPet: 'bot' },
     historyDays: 30,
     machineName: 'demo',
     remotes: [],
