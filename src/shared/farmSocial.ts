@@ -187,6 +187,30 @@ export function cleanProfile(p: any, fallbackName = 'Crab farmer'): FarmProfile 
   return out;
 }
 
+/**
+ * A farmer profile from a public GitHub profile (api.github.com/users/<name>)
+ * and its linked social accounts (…/social_accounts): name, bio, website and
+ * the X / LinkedIn links people already keep there. Only what GitHub has.
+ */
+export function profileFromGithub(user: any, socials: unknown): Partial<FarmProfile> {
+  const out: Partial<FarmProfile> = {};
+  const gh = cleanGithub(user?.login);
+  if (gh) out.github = gh;
+  const name = plain(user?.name, 40) || gh;
+  if (name) out.name = name;
+  const bio = plain(typeof user?.bio === 'string' ? user.bio.replace(/\s+/g, ' ') : '', 120);
+  if (bio) out.bio = bio;
+  const accounts = Array.isArray(socials) ? (socials as { provider?: unknown; url?: unknown }[]) : [];
+  const link = (provider: string) => accounts.find((a) => a?.provider === provider)?.url;
+  const x = cleanX(user?.twitter_username) ?? cleanX(link('twitter'));
+  if (x) out.x = x;
+  const li = cleanLinkedin(link('linkedin'));
+  if (li) out.linkedin = li;
+  const site = cleanUrl(user?.blog);
+  if (site) out.website = site;
+  return out;
+}
+
 export function cleanVisitor(v: any, now: number): Visitor {
   const out: Visitor = { name: plain(v?.name, 40) || 'A passing crab', at: now };
   const gh = cleanGithub(v?.github);

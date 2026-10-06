@@ -9,6 +9,7 @@ import { Tunnel, checkProvider } from '../core/tunnel';
 import type { ServerInfo } from '../shared/types';
 import { FarmStore } from '../core/farm';
 import { FarmSocial } from '../core/farmSocial';
+import { importGithubProfile } from '../core/githubProfile';
 import { farmCardSvg } from '../shared/farmCard';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
 import { WebPush } from '../core/webpush';
@@ -230,6 +231,11 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         if (req.method === 'POST') social.update(await readJson(req));
         else if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
         return json(res, 200, social.view(info(req).publicUrl));
+      }
+      if (p === '/api/farm/social/github' && req.method === 'POST') {
+        const r = await importGithubProfile(String((await readJson(req))?.github ?? '')).catch((e: Error & { status?: number }) => e);
+        if (r instanceof Error) return json(res, r.status ?? 502, { error: r.message });
+        return json(res, 200, r);
       }
       if (p === '/api/farm/social/rotate' && req.method === 'POST') {
         social.rotate();

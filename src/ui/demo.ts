@@ -443,6 +443,7 @@ function demoFarmCall(p: string, body: unknown): unknown {
     demoFarm = f;
   }
   if (p === 'api/farm') return farmView(demoFarm);
+  if (p === 'api/farm/social/github') return { login: 'ada-dev', profile: { github: 'ada-dev', name: 'Ada', bio: 'Ships with a crab on her desk', x: 'ada_dev', linkedin: 'https://www.linkedin.com/in/ada-dev' } };
   if (p.startsWith('api/farm/social')) {
     const b = (body ?? {}) as { profile?: FarmProfile; public?: boolean };
     if (b.profile) demoSocial.profile = cleanProfile(b.profile);

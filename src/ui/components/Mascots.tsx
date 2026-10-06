@@ -5,8 +5,8 @@ import type { PetMood } from '../../shared/types';
  *  - a pixel-art crab in Claude's terracotta, for Claude Code tasks
  *  - a pixel-art terminal robot whose screen is its face, for Codex tasks
  *  - a chibi "whale girl" (DeepSeek-style), an alternative skin for Codex
- *  - a milk frog (Amazon milk frog: milky skin, brown bands, golden eyes with
- *    cross-shaped pupils, sticky toe pads), another skin for Codex
+ *  - a milk frog: a soft yellow pear with eyes on the sides of its head, a
+ *    skin for either Claude Code or Codex
  * Both change face and props with the mood; motion comes from CSS (styles.css, .mascot).
  */
 
@@ -579,41 +579,38 @@ export function CodexBotSprite({ mood, size }: { mood: PetMood; size: number }) 
 }
 
 // ── milk frog ───────────────────────────────────────────────────────────────
-// Same footprint as the crab and the bot (1.2 : 1). The face lives in the two
-// eye domes on top of the head; the throat puffs out when it croaks.
+// A soft yellow pear of a frog: no neck, eyes on the sides of the head (green
+// rings, big black pupils), a thin smile, a cream belly and olive hands and
+// feet. Taller than wide, like the whale girl (120 : 130).
 
-const FROG_BODY = 'M28 74 C28 48 48 34 72 34 C96 34 116 48 116 74 C116 96 98 108 72 108 C46 108 28 96 28 74 Z';
+const FROG_BODY = 'M60 12 C41 12 31 27 31 44 C31 55 26 64 22 77 C17 94 24 112 60 112 C96 112 103 94 98 77 C94 64 89 55 89 44 C89 27 79 12 60 12 Z';
 
 function FrogEye({ cx, mood }: { cx: number; mood: PetMood }) {
-  const cy = 38;
-  const dome = <circle cx={cx} cy={cy} r="15" fill="var(--frog-skin)" stroke="var(--frog-line)" strokeWidth="2" />;
+  const cy = 36;
+  const ring = <circle cx={cx} cy={cy} r="9.5" fill="var(--frog-eye)" stroke="var(--frog-line)" strokeWidth="1.4" />;
   if (mood === 'sleeping' || mood === 'happy')
     return (
-      <g>
-        {dome}
-        <path
-          d={mood === 'happy' ? `M${cx - 8} ${cy + 3} Q${cx} ${cy - 7} ${cx + 8} ${cy + 3}` : `M${cx - 8} ${cy} Q${cx} ${cy + 7} ${cx + 8} ${cy}`}
-          fill="none"
-          stroke="var(--frog-line)"
-          strokeWidth="2.8"
-          strokeLinecap="round"
-        />
-      </g>
+      <path
+        d={mood === 'happy' ? `M${cx - 7} ${cy + 3} Q${cx} ${cy - 6} ${cx + 7} ${cy + 3}` : `M${cx - 7} ${cy} Q${cx} ${cy + 6} ${cx + 7} ${cy}`}
+        fill="none"
+        stroke="var(--frog-ink)"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+      />
     );
-  // the milk frog's cross-shaped pupil: wider when it calls you, a pinpoint when alarmed
-  const p = mood === 'waiting' ? 1.35 : mood === 'alert' ? 0.6 : 1;
+  // a wide stare when it calls you, a pinpoint when alarmed
+  const r = mood === 'waiting' ? 6.4 : mood === 'alert' ? 3.2 : 5.4;
+  // the eyes sit on the sides of the head and look a little outward
+  const out = cx < 60 ? -1 : 1;
   return (
     <g>
-      {dome}
+      {ring}
       <g className="m-eyes">
-        <circle cx={cx} cy={cy} r="11" fill="url(#frogIris)" />
-        <path d={`M${cx - 9.5} ${cy} L${cx + 9.5} ${cy} M${cx} ${cy - 8} L${cx} ${cy + 8}`} stroke="var(--frog-line)" strokeWidth="1.2" strokeLinecap="round" opacity="0.55" />
-        <ellipse cx={cx} cy={cy} rx={5.4 * p} ry={3.6 * p} fill="var(--frog-line)" />
-        <circle cx={cx - 4} cy={cy - 4.5} r="2.6" fill="#fff" />
-        <circle cx={cx + 4} cy={cy + 4} r="1.1" fill="#fff" opacity="0.85" />
+        <circle cx={cx + out * 1.2} cy={cy + (mood === 'working' ? 1.5 : 0)} r={r} fill="var(--frog-ink)" />
+        <circle cx={cx + out * 1.2 - 2} cy={cy - 2.2} r="1.7" fill="#fff" />
       </g>
-      {/* focused: the lids come halfway down */}
-      {mood === 'working' && <path d={`M${cx - 14} ${cy - 1} A14 14 0 0 1 ${cx + 14} ${cy - 1} Z`} fill="var(--frog-shade)" stroke="var(--frog-line)" strokeWidth="1.6" strokeLinejoin="round" />}
+      {/* focused: heavy lids */}
+      {mood === 'working' && <path d={`M${cx - 10} ${cy - 1} A10 10 0 0 1 ${cx + 10} ${cy - 1} Z`} fill="var(--frog)" stroke="var(--frog-line)" strokeWidth="1.2" strokeLinejoin="round" />}
     </g>
   );
 }
@@ -621,93 +618,99 @@ function FrogEye({ cx, mood }: { cx: number; mood: PetMood }) {
 function FrogMouth({ mood }: { mood: PetMood }) {
   switch (mood) {
     case 'happy':
-      return <path d="M56 66 Q72 80 88 66 Z" fill="#d9536f" stroke="var(--frog-line)" strokeWidth="1.8" strokeLinejoin="round" />;
+      return <path d="M50 49 Q60 62 70 49 Z" fill="#c9534f" stroke="var(--frog-ink)" strokeWidth="1.4" strokeLinejoin="round" />;
     case 'waiting':
-      return <ellipse cx="72" cy="69" rx="4" ry="4.4" fill="#d9536f" stroke="var(--frog-line)" strokeWidth="1.6" />;
+      return <ellipse cx="60" cy="52" rx="3" ry="3.4" fill="#c9534f" stroke="var(--frog-ink)" strokeWidth="1.2" />;
     case 'alert':
-      return <path d="M58 70 Q62 66 66 70 Q70 74 74 70 Q78 66 82 70 Q84 72 86 71" fill="none" stroke="var(--frog-line)" strokeWidth="2" strokeLinecap="round" />;
+      return <path d="M51 53 Q54 50 57 53 Q60 56 63 53 Q66 50 69 53" fill="none" stroke="var(--frog-ink)" strokeWidth="1.6" strokeLinecap="round" />;
     case 'sleeping':
-      return <path d="M64 68 Q72 71 80 68" fill="none" stroke="var(--frog-line)" strokeWidth="2" strokeLinecap="round" />;
-    case 'working':
-      return <path d="M60 67 Q72 71 84 67" fill="none" stroke="var(--frog-line)" strokeWidth="2" strokeLinecap="round" />;
+      return <path d="M55 51 Q60 53 65 51" fill="none" stroke="var(--frog-ink)" strokeWidth="1.5" strokeLinecap="round" />;
     default:
-      return <path d="M50 64 Q72 78 94 64" fill="none" stroke="var(--frog-line)" strokeWidth="2.2" strokeLinecap="round" />;
+      // the long thin smile
+      return <path d="M49 49 Q60 55 71 49" fill="none" stroke="var(--frog-ink)" strokeWidth="1.6" strokeLinecap="round" />;
   }
 }
 
-/** A foot with three round sticky toe pads. */
-function FrogFoot({ x, y, flip = false }: { x: number; y: number; flip?: boolean }) {
+/** An olive hand: a round palm with three stubby fingers. */
+function FrogHand({ x, y, flip = false }: { x: number; y: number; flip?: boolean }) {
   const d = flip ? -1 : 1;
   return (
-    <g fill="var(--frog-skin)" stroke="var(--frog-line)" strokeWidth="1.6">
-      <circle cx={x - 6 * d} cy={y} r="3.4" />
-      <circle cx={x} cy={y + 1.5} r="3.4" />
-      <circle cx={x + 6 * d} cy={y} r="3.4" />
+    <g fill="var(--frog-hand)" stroke="var(--frog-line)" strokeWidth="1.1">
+      <ellipse cx={x + 3.5 * d} cy={y - 2.5} rx="2.4" ry="3.2" />
+      <ellipse cx={x + 4.5 * d} cy={y + 1.5} rx="2.4" ry="3" />
+      <ellipse cx={x + 3 * d} cy={y + 5} rx="2.2" ry="2.8" />
+      <ellipse cx={x} cy={y + 1} rx="5" ry="5.4" />
     </g>
   );
 }
 
 export function MilkFrogSprite({ mood, size }: { mood: PetMood; size: number }) {
-  const croak = mood === 'happy' || mood === 'waiting';
+  const typing = mood === 'working';
+  const wave = mood === 'waiting' || mood === 'happy';
   return (
-    <svg className={`mascot frog mood-${mood}`} width={size * 1.2} height={size} viewBox="0 0 144 120" role="img" aria-label={`Milk frog: ${mood}`}>
+    <svg className={`mascot frog mood-${mood}`} width={size * (120 / 130)} height={size} viewBox="0 0 120 130" role="img" aria-label={`Milk frog: ${mood}`}>
       <defs>
-        <radialGradient id="frogIris" cx="45%" cy="40%" r="65%">
-          <stop offset="0" stopColor="var(--frog-iris-hi)" />
-          <stop offset="0.7" stopColor="var(--frog-iris)" />
-          <stop offset="1" stopColor="var(--frog-iris-deep)" />
+        <radialGradient id="frogSkin" cx="38%" cy="28%" r="80%">
+          <stop offset="0" stopColor="var(--frog-hi)" />
+          <stop offset="0.55" stopColor="var(--frog)" />
+          <stop offset="1" stopColor="var(--frog-shade)" />
         </radialGradient>
         <clipPath id="frogBody">
           <path d={FROG_BODY} />
         </clipPath>
       </defs>
-      <ellipse className="mascot-shadow" cx="72" cy="113" rx="34" ry="3.6" />
+      <ellipse className="mascot-shadow" cx="60" cy="126" rx="30" ry="3.4" />
       <g className="m-body">
-        {/* folded back legs */}
-        <g fill="var(--frog-skin)" stroke="var(--frog-line)" strokeWidth="2">
-          <ellipse className="frog-leg l" cx="34" cy="96" rx="15" ry="10" />
-          <ellipse className="frog-leg r" cx="110" cy="96" rx="15" ry="10" />
+        {/* short legs and flat olive feet */}
+        <g fill="var(--frog)" stroke="var(--frog-line)" strokeWidth="1.4">
+          <rect x="40" y="100" width="13" height="20" rx="6" />
+          <rect x="67" y="100" width="13" height="20" rx="6" />
         </g>
-        <g fill="var(--frog-band)" opacity="0.85">
-          <path d="M24 94 Q34 88 44 94 L42 98 Q34 93 26 98 Z" />
-          <path d="M120 94 Q110 88 100 94 L102 98 Q110 93 118 98 Z" />
+        <g fill="var(--frog-hand)" stroke="var(--frog-line)" strokeWidth="1.2">
+          <path d="M34 124 C34 117 42 116 50 117 C55 118 56 121 55 124 Z" />
+          <path d="M86 124 C86 117 78 116 70 117 C65 118 64 121 65 124 Z" />
         </g>
-        <FrogFoot x={26} y={106} />
-        <FrogFoot x={118} y={106} flip />
-        {/* body, its brown bands clipped to it */}
-        <path d={FROG_BODY} fill="var(--frog-skin)" />
-        <g clipPath="url(#frogBody)" fill="var(--frog-band)">
-          <path d="M20 58 C34 52 40 62 52 56 C46 66 34 64 20 72 Z" />
-          <path d="M124 58 C110 52 104 62 92 56 C98 66 110 64 124 72 Z" />
-          <path d="M20 84 C32 78 42 88 50 84 C46 94 32 92 20 98 Z" />
-          <path d="M124 84 C112 78 102 88 94 84 C98 94 112 92 124 98 Z" />
-          <path d="M60 36 C66 42 78 42 84 36 C82 44 62 44 60 36 Z" />
-        </g>
-        <ellipse cx="72" cy="91" rx="22" ry="14" fill="var(--frog-belly)" />
-        <path d={FROG_BODY} fill="none" stroke="var(--frog-line)" strokeWidth="2.2" />
-        {/* throat sac: puffs out when it croaks */}
-        {croak && <ellipse className="frog-sac" cx="72" cy="80" rx="12" ry="8" fill="#f6e7ef" stroke="var(--frog-line)" strokeWidth="1.6" />}
-        <FrogEye cx={50} mood={mood} />
-        <FrogEye cx={94} mood={mood} />
+        {/* the pear: head and body in one */}
+        <path d={FROG_BODY} fill="url(#frogSkin)" stroke="var(--frog-line)" strokeWidth="1.6" />
+        <ellipse cx="60" cy="86" rx="25" ry="22" fill="var(--frog-belly)" clipPath="url(#frogBody)" />
+        <FrogEye cx={38} mood={mood} />
+        <FrogEye cx={82} mood={mood} />
         {mood !== 'sleeping' && (
-          <g fill="#ff9fb0" opacity={mood === 'alert' ? 0.85 : 0.55}>
-            <ellipse cx="42" cy="66" rx="5.5" ry="3" />
-            <ellipse cx="102" cy="66" rx="5.5" ry="3" />
+          <g fill="#ff9f8a" opacity={mood === 'alert' ? 0.75 : 0.45}>
+            <ellipse cx="40" cy="51" rx="4.5" ry="2.4" />
+            <ellipse cx="80" cy="51" rx="4.5" ry="2.4" />
           </g>
         )}
         <FrogMouth mood={mood} />
-        {mood === 'working' && (
-          <g transform="translate(12 -8)">
-            <Laptop />
-          </g>
-        )}
-        {/* front feet: on the keys when working */}
+        {typing && <Laptop />}
+        {/* arms: resting on the belly, typing, or one waving */}
         <g className="frog-hands">
-          <FrogFoot x={56} y={mood === 'working' ? 98 : 106} />
-          <FrogFoot x={88} y={mood === 'working' ? 98 : 106} flip />
+          <g fill="var(--frog)" stroke="var(--frog-line)" strokeWidth="1.4" strokeLinecap="round">
+            <path className="frog-arm l" d={typing ? 'M32 64 C28 80 34 96 42 104' : 'M32 64 C26 76 32 86 42 86'} fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
+            <path className="frog-arm l" d={typing ? 'M32 64 C28 80 34 96 42 104' : 'M32 64 C26 76 32 86 42 86'} fill="none" stroke="var(--frog)" strokeWidth="7" />
+            {wave ? (
+              <>
+                <path d="M89 64 C100 62 106 54 106 46" fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
+                <path d="M89 64 C100 62 106 54 106 46" fill="none" stroke="var(--frog)" strokeWidth="7" />
+              </>
+            ) : (
+              <>
+                <path d={typing ? 'M88 64 C92 80 86 96 78 104' : 'M88 64 C94 76 88 86 78 86'} fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
+                <path d={typing ? 'M88 64 C92 80 86 96 78 104' : 'M88 64 C94 76 88 86 78 86'} fill="none" stroke="var(--frog)" strokeWidth="7" />
+              </>
+            )}
+          </g>
+          <FrogHand x={typing ? 43 : 44} y={typing ? 103 : 85} />
+          {wave ? (
+            <g className="frog-wave">
+              <FrogHand x={106} y={42} flip />
+            </g>
+          ) : (
+            <FrogHand x={typing ? 77 : 76} y={typing ? 103 : 85} flip />
+          )}
         </g>
       </g>
-      <BotProps mood={mood} />
+      <WhaleProps mood={mood} />
     </svg>
   );
 }

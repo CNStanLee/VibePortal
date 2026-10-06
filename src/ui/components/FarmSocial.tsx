@@ -131,6 +131,26 @@ function MyFarm({ farm, social, onChange }: { farm: FarmView; social: FarmSocial
       window.prompt(t.socialCopy, value);
     }
   };
+  // one click instead of four fields: name, bio, website, X and LinkedIn from the public GitHub profile
+  const [importing, setImporting] = useState(false);
+  const importGithub = async () => {
+    setImporting(true);
+    setMsg('');
+    try {
+      const r = await api.farmGithubImport(p.github ?? '');
+      const next = { ...p, ...r.profile };
+      setP(next);
+      await save({ profile: next });
+      const got = (['name', 'bio', 'x', 'linkedin', 'website'] as const).filter((k) => r.profile[k]);
+      const names = { name: t.socialName, bio: t.socialBio, x: 'X', linkedin: 'LinkedIn', website: t.socialWebsite };
+      const missing = !r.profile.x || !r.profile.linkedin;
+      setMsg(fmt(t.socialImported, { login: r.login, fields: got.map((k) => names[k]).join(lang === 'zh' ? '、' : ', ') || '—' }) + (missing ? ` ${t.socialImportMissing}` : ''));
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
   const field = (k: keyof FarmProfile, label: string, ph = '') => (
     <label>
       <span className="muted tiny">{label}</span>
@@ -148,6 +168,12 @@ function MyFarm({ farm, social, onChange }: { farm: FarmView; social: FarmSocial
             void save({ profile: p });
           }}
         >
+          <div className="social-import">
+            <button type="button" className="btn primary" disabled={importing} onClick={() => void importGithub()}>
+              <GithubMark /> {importing ? t.socialImporting : t.socialImport}
+            </button>
+            <span className="muted tiny">{t.socialImportHelp}</span>
+          </div>
           {field('name', t.socialName)}
           {field('bio', t.socialBio)}
           {field('github', t.socialGithub, 'octocat')}

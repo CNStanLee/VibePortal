@@ -182,7 +182,7 @@ A small game on the side: the tokens your agents burn (input + output + cache wr
 
 ### Farmers: profiles, friends and sharing
 
-- **Profile** — a name, a line about you, and your GitHub (its avatar is used), LinkedIn, X and website, shown wherever your farm appears.
+- **Profile** — a name, a line about you, and your GitHub (its avatar is used), LinkedIn, X and website, shown wherever your farm appears. **Fill in from GitHub** does it in one click: it reads your public GitHub profile (the user name you typed, or the account the `gh` CLI is signed in to) and takes the name, bio, website and the X / LinkedIn links you keep there — nothing to authorize.
 - **Public farm** (off by default) — gives your farm an unguessable link `https://<your public address>/#/visit/<id>`. Anyone with it sees your profile, best plants and field — no sign-in, nothing else of the machine — plus what VibePortal is and how to add you as a farmer friend, and can **water** it: every growing plant gets 20 minutes closer to ripe, once a day per visitor, 30 waterings a day. "New link" retires the old one. It needs an address others can reach (Settings → Remote → access from the internet); otherwise the link works on your network only.
 - **Friends** — paste a friend's farm link; your VibePortal reads their public card from their machine and ranks you on a leaderboard (common 1, fine 2, rare 5, epic 12, legendary 30, mythic 100 points). Water their farm from there; your visit shows up on theirs with a link back to yours.
 - **Share** — a share card (your plants, score, collection and tokens, your farmer friends and visitors, your handles, and a banner with what VibePortal is and where to get it) as a PNG: the phone's share sheet (LinkedIn, WeChat, …), a download, or **Post on LinkedIn / X**: on a phone the share sheet carries the card and the caption into the app's post; on a computer the post opens with the caption filled in and the card on the clipboard to paste (a web link can't attach a picture). With a public farm, copy a **GitHub profile README badge** — a live SVG of your farm:
@@ -299,6 +299,7 @@ Everything except `/api/health`, `/api/login` and a public farm's `/api/public/f
 | POST | `/api/farm/draw\|plant\|harvest\|uproot\|store\|display\|discard` | Farm actions `{count}` / `{plot, seedId}` / `{plot}` / `{cropId}` (store: showcase → storehouse, display: back, discard: for good) |
 | GET / POST | `/api/farm/social` | Profile and public switch `{profile?, public?}` |
 | POST | `/api/farm/social/rotate` | A new share link (the old one stops working) |
+| POST | `/api/farm/social/github` | A profile from a public GitHub profile `{github?}` (the gh CLI's account without one) |
 | GET / POST / DELETE | `/api/farm/friends` | Friends' farms (fetched from their machines) / add `{link}` / remove `{url}` |
 | POST | `/api/farm/friends/water` | Water a friend's farm `{url}` |
 | GET | `/api/public/farm/:id` | A public farm's card (no token; 404 unless public) |

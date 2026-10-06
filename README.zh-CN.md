@@ -182,7 +182,7 @@ VibePortal 只读取本机已有的数据，不需要额外登录：
 
 ### 农友：主页、好友和分享
 
-- **主页**——名字、一句话介绍，以及 GitHub（用它的头像）、LinkedIn、X 和个人网站，农场出现的地方都会显示。
+- **主页**——名字、一句话介绍，以及 GitHub（用它的头像）、LinkedIn、X 和个人网站，农场出现的地方都会显示。**从 GitHub 一键导入**：读取你的 GitHub 公开主页（填写的用户名，或本机 `gh` 命令行登录的账号），自动填好名字、简介、网站，以及你在 GitHub 上关联的 X / LinkedIn，不需要任何授权。
 - **公开农场**（默认关闭）——给农场一个猜不到的链接 `https://<你的公网地址>/#/visit/<id>`。拿到链接的人不用登录就能看到你的主页、最好的植物和田地（本机其他信息一概不公开），以及 VibePortal 是什么、怎么加你为农友，还能**浇水**：每株在长的植物提前 20 分钟成熟，每位访客每天一次，每天最多 30 次。“换新链接”会让旧链接失效。需要一个别人能访问的地址（设置 → 远程 → 从互联网访问），否则链接只在你的网络里能打开。
 - **好友**——粘贴好友的农场链接，你的 VibePortal 会从他们的机器读取公开卡片，并和你一起排进排行榜（普通 1、优良 2、稀有 5、史诗 12、传说 30、神话 100 分）。可以直接帮他们浇水，你的到访会出现在他们那里，并附上回访你农场的链接。
 - **分享**——分享卡片（你的植物、分数、图鉴、Token、农友和访客数、账号，以及一条 VibePortal 介绍和下载地址的横幅）生成 PNG：手机分享面板（LinkedIn、微信……）、下载，或**发到 LinkedIn / X**：手机上通过分享面板把卡片和配文一起带进 App 的发帖界面；电脑上打开发帖页、配文已填好，卡片图片已复制，粘贴即可（网页链接本身没法附带图片）。公开农场后还可以复制 **GitHub 主页 README 徽章**——实时更新的农场 SVG：
@@ -299,6 +299,7 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 | POST | `/api/farm/draw\|plant\|harvest\|uproot\|store\|display\|discard` | 农场操作 `{count}` / `{plot, seedId}` / `{plot}` / `{cropId}`（store：展示柜 → 仓库，display：摆回，discard：永久送走） |
 | GET / POST | `/api/farm/social` | 主页资料和公开开关 `{profile?, public?}` |
 | POST | `/api/farm/social/rotate` | 换新分享链接（旧链接失效） |
+| POST | `/api/farm/social/github` | 从 GitHub 公开主页生成农场主页 `{github?}`（不填则用 gh 命令行登录的账号） |
 | GET / POST / DELETE | `/api/farm/friends` | 好友农场（从他们的机器读取）/ 添加 `{link}` / 移除 `{url}` |
 | POST | `/api/farm/friends/water` | 给好友浇水 `{url}` |
 | GET | `/api/public/farm/:id` | 公开农场的卡片（无需令牌；未公开时 404） |

@@ -119,3 +119,19 @@ test('a friend’s farm from their server is cleaned before it is shown', async 
   assert.equal(f.visitors[0].farm, undefined);
   assert.throws(() => cleanPublicFarm({ v: 1, id: 'other' }, 'abcdefghijklmnop'));
 });
+
+test('a farmer profile from a public GitHub profile and its social accounts', async () => {
+  const { profileFromGithub, cleanProfile } = await import('../src/shared/farmSocial');
+  const p = profileFromGithub(
+    { login: 'ada-dev', name: 'Ada <b>L</b>', bio: 'Ships\nwith a crab', blog: 'ada.dev', twitter_username: null },
+    [
+      { provider: 'twitter', url: 'https://twitter.com/ada_dev' },
+      { provider: 'linkedin', url: 'https://www.linkedin.com/in/ada-dev/' },
+      { provider: 'generic', url: 'https://example.com' },
+    ],
+  );
+  assert.deepEqual(p, { github: 'ada-dev', name: 'Ada bL/b', bio: 'Ships with a crab', x: 'ada_dev', linkedin: 'https://www.linkedin.com/in/ada-dev', website: 'https://ada.dev/' });
+  // no name: the login stands in; nothing else is made up
+  assert.deepEqual(profileFromGithub({ login: 'octocat' }, null), { github: 'octocat', name: 'octocat' });
+  assert.equal(cleanProfile({ ...p }).x, 'ada_dev');
+});

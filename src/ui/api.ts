@@ -207,6 +207,8 @@ export const api = {
   clearQueue: (id: string) => call<{ ok: boolean }>('DELETE', `api/tasks/${encodeURIComponent(id)}/queue`),
   farmSocial: () => call<FarmSocialView>('GET', 'api/farm/social'),
   farmSocialUpdate: (body: { profile?: FarmProfile; public?: boolean }) => call<FarmSocialView>('POST', 'api/farm/social', body),
+  /** the farmer profile from a public GitHub profile (the given name, or the machine's signed-in account) */
+  farmGithubImport: (github: string) => call<{ login: string; profile: Partial<FarmProfile> }>('POST', 'api/farm/social/github', { github }),
   farmSocialRotate: () => call<FarmSocialView>('POST', 'api/farm/social/rotate', {}),
   farmFriends: () => call<FriendFarm[]>('GET', 'api/farm/friends'),
   farmFriendAdd: (link: string) => call<FriendFarm[]>('POST', 'api/farm/friends', { link }),
