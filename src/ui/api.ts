@@ -225,6 +225,10 @@ export const api = {
   openProject: (key: string) => call<{ ok: boolean }>('POST', 'api/projects/open', { key }),
   addHost: (url: string, token: string) => call<PublicSettings>('POST', 'api/hosts', { url, token }),
   removeHost: (id: string) => call<PublicSettings>('DELETE', `api/hosts/${encodeURIComponent(id)}`),
+  push: (endpoint?: string) => call<{ publicKey: string; subscribed: boolean; devices: number }>('GET', `api/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`),
+  pushSubscribe: (subscription: PushSubscriptionJSON, label: string) => call<{ ok: boolean }>('POST', 'api/push/subscribe', { subscription, label }),
+  pushUnsubscribe: (endpoint: string) => call<{ ok: boolean }>('POST', 'api/push/unsubscribe', { endpoint }),
+  pushTest: (endpoint: string, body: string) => call<{ ok: boolean }>('POST', 'api/push/test', { endpoint, body }),
 };
 
 export type LiveState = { snapshot: Snapshot | null; connected: boolean; authFailed: boolean };

@@ -9,6 +9,7 @@ import { Tunnel, checkProvider } from '../core/tunnel';
 import type { ServerInfo } from '../shared/types';
 import { FarmStore } from '../core/farm';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
+import { WebPush } from '../core/webpush';
 
 export interface ServerOptions {
   monitor: Monitor;
@@ -60,6 +61,11 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   };
   monitor.on('snapshot', (s) => broadcast('snapshot', s));
   monitor.on('notice', (n: Notice) => broadcast('notice', n));
+  // phones and browsers that subscribed get it even with the page closed
+  const push = new WebPush();
+  monitor.on('notice', (n: Notice) => {
+    if (monitor.config.notifications) void push.broadcast({ ...n, body: n.body.slice(0, 300), tag: n.taskId ?? n.title });
+  });
   // keep proxies / sleeping laptops from silently dropping the stream
   setInterval(() => {
     for (const res of clients) res.write(': ping\n\n');
@@ -368,6 +374,28 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         return res.end(await up.text());
       }
 
+      if (p === '/api/push' && req.method === 'GET') {
+        return json(res, 200, { publicKey: push.publicKey, subscribed: !!push.find(url.searchParams.get('endpoint') ?? ''), devices: push.count });
+      }
+      if (p === '/api/push/subscribe' && req.method === 'POST') {
+        const body = await readJson(req);
+        const err = push.subscribe(body?.subscription, typeof body?.label === 'string' ? body.label : undefined);
+        return json(res, err ? 400 : 200, err ? { error: err } : { ok: true });
+      }
+      if (p === '/api/push/unsubscribe' && req.method === 'POST') {
+        push.unsubscribe(String((await readJson(req))?.endpoint ?? ''));
+        return json(res, 200, { ok: true });
+      }
+      if (p === '/api/push/test' && req.method === 'POST') {
+        const body = await readJson(req);
+        const sub = push.find(String(body?.endpoint ?? ''));
+        if (!sub) return json(res, 400, { error: 'this browser is not subscribed' });
+        const text = typeof body.body === 'string' ? body.body.slice(0, 200) : 'Notifications reach this device.';
+        await push.send(sub, { title: '🔔 VibePortal', body: text, tag: 'vp-test' }).catch((e) => {
+          throw Object.assign(e as Error, { status: 502 });
+        });
+        return json(res, 200, { ok: true });
+      }
       if (p === '/api/hooks/claude' && req.method === 'POST') {
         const body = await readJson(req);
         const ok = monitor.tasks.ingestClaudeHook(body);

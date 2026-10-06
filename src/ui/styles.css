@@ -895,6 +895,17 @@ table.data th {
   margin-top: 16px;
   align-items: center;
 }
+.push-settings {
+  margin-top: 20px;
+}
+.push-settings .checks {
+  margin-top: 8px;
+  gap: 10px 12px;
+}
+.push-on {
+  color: var(--good);
+  font-weight: 600;
+}
 .ok-tag {
   font-style: normal;
   color: var(--good);

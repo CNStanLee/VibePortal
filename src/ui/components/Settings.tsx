@@ -3,6 +3,7 @@ import type { PublicSettings, ServerInfo, SettingsPatch } from '../../shared/typ
 import { api, desktop, getToken } from '../api';
 import { useT } from '../i18n';
 import { RemoteSettings } from './Remote';
+import { disablePush, enablePush, pushEnabled, pushSupport, testPush } from '../push';
 import { GoogleSettings } from './GoogleAccount';
 
 export function SettingsPage({ info }: { info: ServerInfo | null }) {
@@ -79,13 +80,9 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
         </div>
         <div className="checks">
           <Check label={t.notifications} checked={v.notifications} onChange={(c) => set({ notifications: c })} />
-          {!isDesktop && 'Notification' in window && Notification.permission !== 'granted' && (
-            <button className="btn ghost" onClick={() => void Notification.requestPermission()}>
-              {t.enableBrowserNotif}
-            </button>
-          )}
           {isDesktop && <Check label={t.launchAtLogin} checked={v.launchAtLogin} onChange={(c) => set({ launchAtLogin: c })} />}
         </div>
+        {!desktop() && <PushSettings notificationsOn={s.notifications} />}
       </section>
 
       <section className="card">
@@ -147,6 +144,68 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
       {info && (
         <p className="muted small">
           VibePortal {info.version} · {info.mode} · {info.machineName}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Web Push for this browser: task notifications with the page closed. */
+function PushSettings({ notificationsOn }: { notificationsOn: boolean }) {
+  const { t } = useT();
+  const support = pushSupport();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    pushEnabled()
+      .then(setOn)
+      .catch(() => setOn(false));
+  }, []);
+  const run = (f: () => Promise<unknown>, after?: string) => async () => {
+    setBusy(true);
+    setMsg('');
+    try {
+      await f();
+      setOn(await pushEnabled());
+      if (after) setMsg(after);
+    } catch (e) {
+      setMsg((e as Error).message === 'denied' || Notification.permission === 'denied' ? t.pushDenied : (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const blocked = support === 'ok' && Notification.permission === 'denied';
+  return (
+    <div className="push-settings">
+      <h3>{t.pushTitle}</h3>
+      <p className="muted small">{t.pushHelp}</p>
+      {support === 'ok' ? (
+        <div className="checks">
+          {on ? (
+            <>
+              <span className="push-on">✓ {t.pushOn}</span>
+              <button className="btn" disabled={busy} onClick={run(() => testPush(t.pushTestBody), t.pushSent)}>
+                {t.pushTest}
+              </button>
+              <button className="btn ghost" disabled={busy} onClick={run(disablePush)}>
+                {t.pushDisable}
+              </button>
+            </>
+          ) : (
+            <button className="btn primary" disabled={busy || on === null || blocked} onClick={run(enablePush)}>
+              🔔 {t.pushEnable}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="muted small">{support === 'insecure' ? t.pushInsecure : support === 'ios-install' ? t.pushIos : t.pushUnsupported}</p>
+      )}
+      {blocked && <p className="muted small">{t.pushDenied}</p>}
+      {on && !notificationsOn && <p className="muted small">{t.pushOffGlobal}</p>}
+      {msg && (
+        <p className="muted small" role="status">
+          {msg}
         </p>
       )}
     </div>

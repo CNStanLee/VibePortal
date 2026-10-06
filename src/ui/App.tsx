@@ -16,6 +16,7 @@ import { SkillsPage } from './components/Skills';
 import { FarmPage } from './components/Farm';
 import { OfficialRemoteCard } from './components/OfficialRemote';
 import { DevicesCard, GoogleButton } from './components/GoogleAccount';
+import { localNotice, syncPush } from './push';
 
 type Tab = 'overview' | 'analysis' | 'resources' | 'tasks' | 'skills' | 'farm' | 'settings';
 // tasks first: it's what you come back for
@@ -50,14 +51,13 @@ export function Dashboard() {
     setToasts((x) => [...x.slice(-3), { ...n, id }]);
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), 8000);
     // desktop app shows native notifications from the main process
-    if (!desktop() && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
-      new Notification(n.title, { body: n.body, icon: './icon.png' });
-    }
+    if (!desktop()) void localNotice(n);
   }, []);
   const { snapshot, connected, authFailed } = useLive(onNotice);
 
   useEffect(() => {
     api.info().then(setInfo).catch(() => {});
+    syncPush().catch(() => {});
   }, []);
   // follow back/forward and pasted #/… links
   useEffect(() => {
