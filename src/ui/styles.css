@@ -3913,3 +3913,70 @@ html.pet-page body {
     z-index: 45;
   }
 }
+
+/* close an opened bubble; minimize the floating pet to a crab button */
+.pet-bubble-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pet-unit.open .pet-bubble-head {
+  padding-right: 26px;
+}
+.pet-mini {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 40;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bubble);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.pet-mini .count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+}
+.pet-mini.attention {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 45%, transparent), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+@media (max-width: 760px) {
+  .pet-mini {
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    right: 10px;
+    width: 46px;
+    height: 46px;
+  }
+  .pet-floating .pet-unit.open .pet-bubble-close {
+    width: 30px;
+    height: 30px;
+    font-size: 19px;
+  }
+}

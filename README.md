@@ -24,21 +24,28 @@ new tasks from your phone, and a pixel crab that stir-fries while your commands 
 
 You run several agents at once. Somewhere a session is waiting for a permission, another one just finished, and the weekly limit is closer than you think. VibePortal turns all of that into something you can glance at.
 
-| | Tool | What it is | VibePortal, by comparison |
-| --- | --- | --- | --- |
-| **Official pets** | [Codex Pets][codexpets] (OpenAI, May 2026) | Animated companions in the Codex desktop app (Windows / macOS): a floating overlay that shows what Codex is working on and tells you when it's done or needs input; `/pet`, `/hatch` | One pet **per task** for Claude Code **and** Codex — CLI and VS Code sessions — on Ubuntu, Windows, the web and your phone, with plan limits and Allow / Deny from anywhere |
-| | [Claude Code `/buddy`][buddy] (reported April 2026) | A terminal companion in ASCII art with a species, rarity and stats that chimes in beside Claude — described as a separate entity, not a status display | The crab shows what Claude is actually doing (edits, commands, plan, permission requests) and how close the plan limits are |
-| **Open-source agent pets** | [clawd-on-desk][clawd] | A pixel desktop pet that reacts to many coding agents' state (hooks and log polling), with quota rings and approve / deny bubbles; Windows, macOS, Linux | Clones per task with the live plan and tool feed; a web / phone dashboard to start tasks and send follow-ups with model + effort, full conversations, remote machines and official Remote Control |
-| | [Claude Status Pet][csp] | An animated pet that shows Claude Code / Copilot activity from hook events | As above, plus usage analytics, forecasts and machine resources |
-| **Classic desktop pets** | [Desktop Goose][goose] · [Shimeji-ee][shimeji] · [BongoCat][bongo] | Pets that roam the screen or tap along with your keyboard and mouse | Pets driven by your agents rather than by your mouse |
-| **Usage meters** | [ccusage][ccusage] | CLI reports of Claude Code / Codex usage from the local JSONL logs | The same local logs, plus **live plan limits** of Claude and ChatGPT, per-window resets and run-out forecasts — in a GUI and on the phone |
-| | [Claude Code Usage Monitor][ccmonitor] | Terminal monitor of Claude Code tokens and cost, with plan limits and forecasting | Codex / ChatGPT too, tasks and progress, the pet, phone access |
-| | [CodexBar][codexbar] | macOS menu-bar app with session / weekly limits and reset countdowns for Codex, Claude and more | Ubuntu, Windows and web; task progress, new tasks and instructions |
-| **Agent managers** | [Claude Squad][squad] | Terminal app running several agents side by side in tmux sessions and git worktrees | Watches the sessions you already run in VS Code or a terminal, from the desktop and the phone |
-| | [opcode][opcode] | Desktop GUI for Claude Code sessions, custom agents and a usage dashboard | Claude Code **and** Codex, both providers' plan limits, the pet, phone and remote machines |
-| | [Vibe Kanban][kanban] | Kanban board to orchestrate and review coding-agent tasks | A glanceable desk companion: live progress, limits, permission prompts and one-tap follow-ups |
+| Tool | Desktop pet | Claude Code | Codex | Live progress (plan, tools) | Plan limits | Allow / Deny prompts | Start tasks & follow-ups | Phone / web |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| **VibePortal** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| [Codex Pets][codexpets] <sub>official</sub> | ✅ | ❌ | ✅ | ✅ | ❌ | ◐ | ◐ | ❌ |
+| [Claude Code `/buddy`][buddy] <sub>official</sub> | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| [clawd-on-desk][clawd] | ✅ | ✅ | ✅ | ◐ | ✅ | ✅ | ❌ | ❌ |
+| [Claude Status Pet][csp] | ✅ | ✅ | ❌ | ◐ | ❌ | ❌ | ❌ | ❌ |
+| [Desktop Goose][goose] · [Shimeji-ee][shimeji] · [BongoCat][bongo] | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| [ccusage][ccusage] | ❌ | ✅ | ✅ | ❌ | ◐ | ❌ | ❌ | ❌ |
+| [Claude Code Usage Monitor][ccmonitor] | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| [CodexBar][codexbar] | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| [Claude Squad][squad] | ❌ | ✅ | ✅ | ◐ | ❌ | ◐ | ✅ | ❌ |
+| [opcode][opcode] | ❌ | ✅ | ❌ | ◐ | ◐ | ❌ | ✅ | ❌ |
+| [Vibe Kanban][kanban] | ❌ | ✅ | ✅ | ◐ | ❌ | ◐ | ✅ | ◐ |
 
-<sub>Descriptions from each project's own page or the cited coverage (October 2026). Several of these tools are great at what they focus on — VibePortal's angle is one local app that combines the pet, the limits of both providers, task control and phone access.</sub>
+<sub>✅ yes · ◐ partly · ❌ no. From each project's own page or the cited coverage (October 2026); "partly" means for example state reactions instead of the plan and tool feed, token reports instead of live limits, approvals only inside that app, or a web UI meant for the same machine.</sub>
+
+How VibePortal differs from the pets:
+
+- **vs the official pets** — Codex Pets live in the Codex desktop app (Windows / macOS) and follow Codex only; Claude Code's `/buddy` is a companion character in the terminal rather than a status display. VibePortal follows Claude Code **and** Codex sessions, CLI and VS Code alike, gives each running task its own pet, shows both providers' plan limits, and works on Ubuntu, Windows, the web and your phone.
+- **vs open-source agent pets** — [clawd-on-desk][clawd] and [Claude Status Pet][csp] react to agent state from hooks and logs. VibePortal adds the live plan and tool feed per task, a dashboard to start tasks and send follow-ups with model and effort, full conversations, remote machines and the agents' official Remote Control.
+
 
 [codexpets]: https://engadget.com/2162796/openai-introduces-ai-generated-pets-for-its-codex-app
 [buddy]: https://www.mindstudio.ai/blog/what-is-claude-code-buddy-feature

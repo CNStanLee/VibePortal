@@ -212,7 +212,6 @@ export function Dashboard() {
           snapshot={snapshot}
           variant="floating"
           onOpenDashboard={() => setTab('overview')}
-          onHide={() => void api.saveSettings({ pet: { enabled: false } })}
         />
       )}
     </div>

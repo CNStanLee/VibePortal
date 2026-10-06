@@ -16,7 +16,6 @@ interface Props {
   /** 'window' = standalone transparent Electron window; 'floating' = overlay inside the dashboard */
   variant: 'window' | 'floating';
   onOpenDashboard?: () => void;
-  onHide?: () => void;
 }
 
 const MAX_CLONES = 5;
@@ -48,11 +47,27 @@ const MOOD_LABEL: Record<PetMood, { zh: string; en: string }> = {
  * The pet "stage": one clone per active task (crab = Claude Code, whale girl =
  * Codex), or the home pets showing plan limits when nothing is going on.
  */
-export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props) {
+export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
   const { t, lang } = useT();
   const [open, setOpen] = useState<string | null>(null);
   const [dismissTick, setDismissTick] = useState(0);
   const [launching, setLaunching] = useState(false);
+  const [mini, setMiniState] = useState(() => {
+    try {
+      return localStorage.getItem('vp.petMini') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setMini = (on: boolean) => {
+    setMiniState(on);
+    setOpen(null);
+    try {
+      localStorage.setItem('vp.petMini', on ? '1' : '0');
+    } catch {
+      /* private mode */
+    }
+  };
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [floatPos, setFloatPos] = useState<{ x: number; y: number } | null>(() => loadFloatPos());
   const floatPosRef = useRef(floatPos);
@@ -164,6 +179,17 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
 
   const style: React.CSSProperties = variant === 'floating' && floatPos ? { left: floatPos.x, top: floatPos.y, right: 'auto', bottom: 'auto' } : {};
 
+  // minimized (floating pet only, remembered per browser): just a small crab button
+  if (variant === 'floating' && mini) {
+    const waiting = shown.some((u) => u.attention);
+    return (
+      <button className={`pet-mini ${waiting ? 'attention' : ''}`} onClick={() => setMini(false)} aria-label={t.petRestore} title={t.petRestore}>
+        <img src="./icon.svg" alt="" width={34} height={34} />
+        {clones.length > 0 && <span className="count">{clones.length}</span>}
+      </button>
+    );
+  }
+
   return (
     <div
       ref={stageRef}
@@ -179,9 +205,9 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
       {historyId && snapshot?.tasks.find((x) => x.id === historyId) && (
         <TaskHistoryView task={snapshot.tasks.find((x) => x.id === historyId)!} device={snapshot.machineName} onClose={() => setHistoryId(null)} />
       )}
-      {variant === 'floating' && onHide && (
-        <button className="pet-x" onClick={onHide} aria-label={t.hidePet} title={t.hidePet}>
-          ×
+      {variant === 'floating' && (
+        <button className="pet-x" onClick={() => setMini(true)} aria-label={t.petMinimize} title={t.petMinimize}>
+          –
         </button>
       )}
       <div className="pet-side">
@@ -208,6 +234,11 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
         return (
           <div key={u.key} className={`pet-unit ${isOpen ? 'open' : ''} ${u.attention ? 'attention' : ''} ${spawn ? 'spawn' : ''}`}>
             <div className={`pet-bubble mood-${u.mood}`} role="status" aria-live="polite">
+              {isOpen && (
+                <button className="pet-bubble-close" onClick={() => setOpen(null)} onPointerDown={(e) => e.stopPropagation()} aria-label={t.close} title={t.close}>
+                  ×
+                </button>
+              )}
               {u.task ? (
                 <TaskBubble
                   unit={u}
