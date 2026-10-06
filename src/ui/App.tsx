@@ -13,6 +13,7 @@ import { Resources } from './components/Resources';
 import { NewTask } from './components/NewTask';
 import { SkillsPage } from './components/Skills';
 import { OfficialRemoteCard } from './components/OfficialRemote';
+import { DevicesCard, GoogleButton } from './components/GoogleAccount';
 
 type Tab = 'overview' | 'analysis' | 'resources' | 'tasks' | 'skills' | 'settings';
 // tasks first: it's what you come back for
@@ -173,6 +174,7 @@ export function Dashboard() {
               <TaskList tasks={snapshot.tasks} expandable />
             </section>
             <OfficialRemoteCard state={snapshot.official} />
+            <DevicesCard />
           </div>
         ) : (
           <SettingsPage info={info} />
@@ -230,13 +232,30 @@ export function PetPage() {
 function TokenGate() {
   const { t } = useT();
   const [mode, setMode] = useState<'password' | 'token' | null>(null);
+  const [google, setGoogle] = useState<string | undefined>();
+  const [hasPassword, setHasPassword] = useState(true);
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    void auth.mode().then(setMode);
+    void auth.health().then((h) => {
+      setMode(h.auth);
+      setGoogle(h.google);
+      setHasPassword(h.password);
+    });
   }, []);
   if (!mode) return null;
+  const withGoogle = async (credential: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      setToken((await auth.loginGoogle(credential)).token);
+      location.reload();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
   const submit = async () => {
     if (mode === 'token') {
       setToken(value.trim());
@@ -264,8 +283,14 @@ function TokenGate() {
       >
         <img src="./icon.svg" alt="" width={48} height={48} />
         <h2>{mode === 'password' ? t.pwTitle : t.tokenTitle}</h2>
-        <p className="muted small">{mode === 'password' ? t.pwHelp : t.tokenHelp}</p>
-        <input
+        <p className="muted small">{mode === 'password' ? (google && !hasPassword ? t.googleSignIn : t.pwHelp) : t.tokenHelp}</p>
+        {mode === 'password' && google && (
+          <>
+            <GoogleButton clientId={google} onCredential={(c) => void withGoogle(c)} />
+            {hasPassword && <div className="gate-or muted small">{t.orPassword}</div>}
+          </>
+        )}
+        {(mode !== 'password' || hasPassword) && <input
           autoFocus
           type={mode === 'password' ? 'password' : 'text'}
           autoComplete={mode === 'password' ? 'current-password' : 'off'}
@@ -273,11 +298,13 @@ function TokenGate() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           spellCheck={false}
-        />
+        />}
         {error && <p className="action-msg small">{error}</p>}
-        <button className="btn primary" disabled={!value.trim() || busy}>
-          {mode === 'password' ? t.signIn : t.connect}
-        </button>
+        {(mode !== 'password' || hasPassword) && (
+          <button className="btn primary" disabled={!value.trim() || busy}>
+            {mode === 'password' ? t.signIn : t.connect}
+          </button>
+        )}
       </form>
     </div>
   );

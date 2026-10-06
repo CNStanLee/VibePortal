@@ -26,7 +26,8 @@ export function RemoteSettings({ settings, onSettings }: { settings: PublicSetti
   }, [settling]);
 
   const lan = info?.lanUrls ?? [];
-  const pw = info?.passwordSet ?? settings.passwordSet;
+  // a password or a bound Google account: either way remote browsers sign in, so links carry no token
+  const pw = (info?.passwordSet ?? settings.passwordSet) || (!!settings.googleClientId && settings.googleOwners.length > 0);
   const publicUrl = info?.publicUrl;
   const [qrTarget, setQrTarget] = useState<'public' | 'lan'>('public');
   const target = qrTarget === 'public' && publicUrl ? publicUrl : lan[0];

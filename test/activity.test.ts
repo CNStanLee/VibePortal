@@ -104,7 +104,7 @@ test('remote auth: password sessions, public requests never accept the API token
     claudeDir: '/c', codexDir: '/x', historyDays: 30, pollSeconds: 15, subscriptionPollSeconds: 300, warnPercent: 75, criticalPercent: 90,
     notifications: true, pet: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' }, suggestModel: 'haiku', claudeBin: '', codexBin: '', prices: {},
     anthropicAdminKey: '', openaiAdminKey: '', launchAtLogin: false, apiToken: 'tok', port: 8787, remoteAccess: true, machineName: 'm',
-    instanceId: 'i', hosts: [], remotePassword: null, sessionSecret: 's0', publicTunnel: false, tunnelProvider: 'localhost.run', ngrokDomain: '', ngrokAuthtoken: '', publicUrl: '',
+    instanceId: 'i', hosts: [], remotePassword: null, sessionSecret: 's0', publicTunnel: false, tunnelProvider: 'localhost.run', ngrokDomain: '', ngrokAuthtoken: '', publicUrl: '', googleClientId: '', googleOwners: [],
   };
   assert.throws(() => applyPatch(base, { publicTunnel: true }), /password/);
   assert.throws(() => applyPatch(base, { remotePassword: 'short' }), /8 characters/);
@@ -234,4 +234,29 @@ test('tunnel: ngrok static domain and Tailscale Funnel (fake CLIs)', async () =>
   b.sync(true, 18999, 'tailscale');
   assert.equal((await until(b, (s) => s.state === 'on')).url, 'https://box.tail1234.ts.net');
   b.stop();
+});
+
+test('Google ID tokens: signature, audience, expiry and verified e-mail are all checked', async () => {
+  const crypto = await import('node:crypto');
+  const { verifyGoogleIdToken } = await import('../src/server/auth');
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...(publicKey.export({ format: 'jwk' }) as Record<string, unknown>), kid: 'k1', alg: 'RS256', use: 'sig' };
+  const now = Math.floor(Date.now() / 1000);
+  const sign = (claims: Record<string, unknown>, kid = 'k1') => {
+    const h = Buffer.from(JSON.stringify({ alg: 'RS256', kid, typ: 'JWT' })).toString('base64url');
+    const p = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    const s = crypto.sign('RSA-SHA256', Buffer.from(`${h}.${p}`), privateKey).toString('base64url');
+    return `${h}.${p}.${s}`;
+  };
+  const cid = 'abc.apps.googleusercontent.com';
+  const good = { iss: 'https://accounts.google.com', aud: cid, exp: now + 600, iat: now, email: 'Me@Gmail.com', email_verified: true };
+  assert.equal(await verifyGoogleIdToken(sign(good), cid, [jwk]), 'me@gmail.com');
+  await assert.rejects(verifyGoogleIdToken(sign({ ...good, aud: 'other.apps.googleusercontent.com' }), cid, [jwk]), /another app/);
+  await assert.rejects(verifyGoogleIdToken(sign({ ...good, exp: now - 3600 }), cid, [jwk]), /expired/);
+  await assert.rejects(verifyGoogleIdToken(sign({ ...good, email_verified: false }), cid, [jwk]), /verified/);
+  await assert.rejects(verifyGoogleIdToken(sign({ ...good, iss: 'evil.example' }), cid, [jwk]), /issuer/);
+  const t = sign(good);
+  const forged = t.slice(0, t.indexOf('.') + 1) + Buffer.from(JSON.stringify({ ...good, email: 'attacker@gmail.com' })).toString('base64url') + t.slice(t.lastIndexOf('.'));
+  await assert.rejects(verifyGoogleIdToken(forged, cid, [jwk]), /signature/);
+  await assert.rejects(verifyGoogleIdToken(sign(good, 'nope'), cid, [jwk]), /unknown signing key/);
 });

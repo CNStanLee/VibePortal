@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Monitor, type Notice } from '../core/monitor';
 import { cleanRunOptions } from '../core/actions';
-import { LOCAL_ONLY_FIELDS, applyPatch, checkPassword, saveConfig, toPublic } from '../core/config';
-import { LoginLimiter, VIA_TUNNEL, authMode, authorized, clientIp, isLocalRequest, issueSession } from './auth';
+import { LOCAL_ONLY_FIELDS, applyPatch, checkPassword, hasRemoteAuth, saveConfig, toPublic } from '../core/config';
+import { LoginLimiter, VIA_TUNNEL, authMode, authorized, clientIp, isLocalRequest, issueSession, verifyGoogleIdToken } from './auth';
 import { Tunnel, checkProvider } from '../core/tunnel';
 import type { ServerInfo } from '../shared/types';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
@@ -71,7 +71,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   let ingress: http.Server | undefined;
   let ingressPort = 0;
   const syncTunnel = async () => {
-    const want = monitor.config.publicTunnel && !!monitor.config.remotePassword;
+    const want = monitor.config.publicTunnel && hasRemoteAuth(monitor.config);
     if (want && !ingress) {
       const s = http.createServer((req, res) => {
         (req as unknown as Record<symbol, boolean>)[VIA_TUNNEL] = true;
@@ -101,6 +101,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     const base = `http://127.0.0.1:${boundPort}`;
     return {
       viewerLocal: isLocalRequest(req),
+      instanceId: monitor.config.instanceId,
       passwordSet: !!monitor.config.remotePassword,
       // only a connected tunnel goes into links / the QR code
       publicUrl: monitor.config.publicUrl || (tunnel.state.state === 'on' ? tunnel.state.url : undefined),
@@ -124,7 +125,42 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       const p = url.pathname;
 
       if (!p.startsWith('/api/')) return serveStatic(opts.uiDir, p, res);
-      if (p === '/api/health') return json(res, 200, { ok: true, app: 'vibeportal', name: monitor.config.machineName, auth: authMode(req, monitor.config) });
+      if (p === '/api/health' && req.method === 'OPTIONS') {
+        // preflight for the cross-device online check (it sends ngrok's skip-warning header)
+        res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Allow-Headers': 'ngrok-skip-browser-warning', 'Access-Control-Max-Age': '600' });
+        return res.end();
+      }
+      if (p === '/api/health') {
+        // readable cross-origin, so a page on one device can show whether another is online
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        const c = monitor.config;
+        return json(res, 200, {
+          ok: true,
+          app: 'vibeportal',
+          name: c.machineName,
+          auth: authMode(req, c),
+          password: !!c.remotePassword,
+          // the client id is public (it is in every Google sign-in page anyway)
+          google: c.googleClientId && c.googleOwners.length ? c.googleClientId : undefined,
+        });
+      }
+      if (p === '/api/login/google' && req.method === 'POST') {
+        const ip = clientIp(req);
+        const wait = limiter.wait(ip);
+        if (wait) return json(res, 429, { error: `too many attempts — try again in ${Math.ceil(wait / 1000)} s` });
+        const c = monitor.config;
+        if (!c.googleClientId || !c.googleOwners.length) return json(res, 400, { error: 'Google sign-in is not set up on this machine' });
+        const email = await verifyGoogleIdToken(String((await readJson(req))?.credential ?? ''), c.googleClientId).catch((e) => {
+          limiter.fail(ip);
+          throw e;
+        });
+        if (!c.googleOwners.includes(email)) {
+          limiter.fail(ip);
+          return json(res, 403, { error: `${email} is not allowed on this machine` });
+        }
+        limiter.success(ip);
+        return json(res, 200, { ...issueSession(c), email });
+      }
       if (p === '/api/login' && req.method === 'POST') {
         const ip = clientIp(req);
         const wait = limiter.wait(ip);
@@ -208,6 +244,19 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         if (!known) return json(res, 404, { error: 'unknown project' });
         monitor.actions.openPath(key);
         return json(res, 200, { ok: true });
+      }
+
+      // bind the Google account that signs in here (only on the machine itself)
+      if (p === '/api/google/bind' && req.method === 'POST') {
+        if (!isLocalRequest(req)) return json(res, 403, { error: 'bind a Google account on the machine itself' });
+        const c = monitor.config;
+        if (!c.googleClientId) return json(res, 400, { error: 'enter the Google client id first' });
+        const email = await verifyGoogleIdToken(String((await readJson(req))?.credential ?? ''), c.googleClientId);
+        const next = { ...c, googleOwners: [...new Set([...c.googleOwners, email])] };
+        saveConfig(next);
+        monitor.setConfig(next);
+        void syncTunnel();
+        return json(res, 200, toPublic(next));
       }
 
       // ── new tasks ─────────────────────────────────────────────────────────

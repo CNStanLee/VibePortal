@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
-import type { Config } from '../core/config';
+import { hasRemoteAuth, type Config } from '../core/config';
 
 /*
  * Who may call the API:
@@ -44,7 +44,7 @@ export function clientIp(req: http.IncomingMessage): string {
 /** Which login the UI should offer this caller. */
 export function authMode(req: http.IncomingMessage, cfg: Config): 'password' | 'token' {
   if (isLocalRequest(req)) return 'token';
-  return cfg.remotePassword || isForwarded(req) ? 'password' : 'token';
+  return hasRemoteAuth(cfg) || isForwarded(req) ? 'password' : 'token';
 }
 
 export function issueSession(cfg: Config): { token: string; expiresAt: string } {
@@ -54,7 +54,7 @@ export function issueSession(cfg: Config): { token: string; expiresAt: string } 
 }
 
 export function validSession(cfg: Config, token: string): boolean {
-  if (!cfg.remotePassword || !token.startsWith('s1.')) return false;
+  if (!hasRemoteAuth(cfg) || !token.startsWith('s1.')) return false;
   const i = token.lastIndexOf('.');
   const body = token.slice(0, i);
   const exp = Number(body.split('.')[1]);
@@ -78,7 +78,7 @@ export function authorized(req: http.IncomingMessage, url: URL, cfg: Config): bo
   if (validSession(cfg, given)) return true;
   if (isLocalRequest(req)) return safeEqual(given, cfg.apiToken);
   if (isForwarded(req)) return false;
-  if (cfg.remotePassword) return !!header && safeEqual(header, cfg.apiToken);
+  if (hasRemoteAuth(cfg)) return !!header && safeEqual(header, cfg.apiToken);
   return safeEqual(given, cfg.apiToken);
 }
 
@@ -111,4 +111,49 @@ export class LoginLimiter {
   success(ip: string) {
     this.byIp.delete(ip);
   }
+}
+
+// ── Google sign-in ───────────────────────────────────────────────────────────
+// The browser gets an ID token from Google Identity Services; we check its RS256
+// signature against Google's published keys, the audience (the user's own OAuth
+// client id), issuer, expiry and that the e-mail is verified. No client secret.
+
+let jwks: { at: number; maxAge: number; keys: Record<string, unknown>[] } | undefined;
+
+async function googleKeys(force = false): Promise<Record<string, unknown>[]> {
+  if (!force && jwks && Date.now() - jwks.at < jwks.maxAge) return jwks.keys;
+  const res = await fetch('https://www.googleapis.com/oauth2/v3/certs', { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw Object.assign(new Error(`could not fetch Google's signing keys (HTTP ${res.status})`), { status: 502 });
+  const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')?.[1] ?? 3600) * 1000;
+  jwks = { at: Date.now(), maxAge, keys: ((await res.json()) as { keys: Record<string, unknown>[] }).keys };
+  return jwks.keys;
+}
+
+export async function verifyGoogleIdToken(credential: string, clientId: string, keys?: Record<string, unknown>[]): Promise<string> {
+  const bad = (m: string) => Object.assign(new Error(m), { status: 401 });
+  const parts = String(credential).split('.');
+  if (parts.length !== 3) throw bad('not a Google ID token');
+  const [h, p, sig] = parts;
+  let header: { alg?: string; kid?: string };
+  let claims: Record<string, unknown>;
+  try {
+    header = JSON.parse(Buffer.from(h, 'base64url').toString('utf8'));
+    claims = JSON.parse(Buffer.from(p, 'base64url').toString('utf8'));
+  } catch {
+    throw bad('malformed ID token');
+  }
+  if (header.alg !== 'RS256') throw bad('unexpected token algorithm');
+  let set = keys ?? (await googleKeys());
+  let jwk = set.find((k) => k.kid === header.kid);
+  if (!jwk && !keys) jwk = (set = await googleKeys(true)).find((k) => k.kid === header.kid); // keys rotated
+  if (!jwk) throw bad('unknown signing key');
+  const key = crypto.createPublicKey({ key: jwk as unknown as JsonWebKey, format: 'jwk' });
+  if (!crypto.verify('RSA-SHA256', Buffer.from(`${h}.${p}`), key, Buffer.from(sig, 'base64url'))) throw bad('bad signature');
+  const now = Date.now() / 1000;
+  if (claims.iss !== 'accounts.google.com' && claims.iss !== 'https://accounts.google.com') throw bad('wrong issuer');
+  if (claims.aud !== clientId) throw bad('token was issued for another app');
+  if (typeof claims.exp !== 'number' || claims.exp < now - 60) throw bad('token expired');
+  if (typeof claims.iat === 'number' && claims.iat > now + 300) throw bad('token from the future');
+  if (claims.email_verified !== true || typeof claims.email !== 'string') throw bad('the Google account has no verified e-mail');
+  return claims.email.toLowerCase();
 }

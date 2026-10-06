@@ -162,7 +162,7 @@ test('settings patch clamps values and keeps secrets', () => {
       claudeDir: '/c', codexDir: '/x', historyDays: 30, pollSeconds: 15, subscriptionPollSeconds: 300, warnPercent: 75, criticalPercent: 90,
       notifications: true, pet: { enabled: true, size: 140, character: 'duo', codexPet: 'bot' }, suggestModel: 'haiku', claudeBin: '', codexBin: '', prices: {},
       anthropicAdminKey: 'k', openaiAdminKey: '', launchAtLogin: false, apiToken: 't', port: 8787, remoteAccess: false, machineName: 'm',
-      instanceId: 'i', hosts: [], remotePassword: null, sessionSecret: 's', publicTunnel: false, tunnelProvider: 'localhost.run', ngrokDomain: '', ngrokAuthtoken: '', publicUrl: '',
+      instanceId: 'i', hosts: [], remotePassword: null, sessionSecret: 's', publicTunnel: false, tunnelProvider: 'localhost.run', ngrokDomain: '', ngrokAuthtoken: '', publicUrl: '', googleClientId: '', googleOwners: [],
     },
     { subscriptionPollSeconds: 5, pet: { size: 9999, character: 'claude', codexPet: 'whale' }, suggestModel: 'bad model; rm -rf /' },
   );

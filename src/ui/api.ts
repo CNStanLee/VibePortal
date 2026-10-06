@@ -157,13 +157,21 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 /** Unauthenticated calls: how this server wants us to sign in, and the password login. */
 export const auth = {
-  mode: async (): Promise<'password' | 'token'> => {
+  mode: async (): Promise<'password' | 'token'> => (await auth.health()).auth,
+  /** how this server wants us to sign in: token / password, and Google when it is set up */
+  health: async (): Promise<{ auth: 'password' | 'token'; password: boolean; google?: string; name?: string }> => {
     try {
-      const r = await fetch('api/health');
-      return ((await r.json()) as { auth?: 'password' | 'token' }).auth ?? 'token';
+      const r = await (await fetch('api/health')).json();
+      return { auth: r.auth ?? 'token', password: r.password ?? r.auth === 'password', google: r.google, name: r.name };
     } catch {
-      return 'token';
+      return { auth: 'token', password: false };
     }
+  },
+  loginGoogle: async (credential: string): Promise<{ token: string; email: string }> => {
+    const res = await fetch('api/login/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+    return body;
   },
   login: async (password: string): Promise<{ token: string; expiresAt: string }> => {
     const res = await fetch('api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
@@ -193,6 +201,7 @@ export const api = {
   deleteSkill: (id: string) => call<{ ok: boolean }>('DELETE', `api/skills/${id}`),
   installSkill: (id: string, target: 'claude' | 'codex', on: boolean) => call<{ ok: boolean }>(on ? 'POST' : 'DELETE', `api/skills/${id}/install?target=${target}`, on ? {} : undefined),
   archiveSkill: (id: string) => call<{ slug: string }>('POST', `api/skills/${id}/archive`, {}),
+  googleBind: (credential: string) => call<PublicSettings>('POST', 'api/google/bind', { credential }),
   tunnelCheck: (provider: string) => call<TunnelCheck>('GET', `api/tunnel/check?provider=${encodeURIComponent(provider)}`),
   resources: (host?: string) => call<ResourceSnapshot>('GET', `api/resources${host ? `?host=${encodeURIComponent(host)}` : ''}`),
   openInVscode: (id: string, prompt?: string) => call<{ ok: boolean }>('POST', `api/tasks/${encodeURIComponent(id)}/vscode`, { prompt }),

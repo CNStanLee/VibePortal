@@ -288,6 +288,10 @@ export interface PublicSettings {
   ngrokAuthtokenSet: boolean;
   /** the user's own public address (port forward / reverse proxy), shown in the QR code */
   publicUrl: string;
+  /** Google sign-in: the OAuth client id (Web application) from the user's Google Cloud project */
+  googleClientId: string;
+  /** Google accounts allowed to sign in to this machine */
+  googleOwners: string[];
 }
 
 export interface SettingsPatch extends Partial<Omit<PublicSettings, 'anthropicAdminKeySet' | 'openaiAdminKeySet' | 'pet' | 'hosts' | 'passwordSet' | 'ngrokAuthtokenSet'>> {
@@ -317,6 +321,8 @@ export interface ServerInfo {
   discovered: { id: string; name: string; url: string; seenAt: string }[];
   /** the request came from this machine (security settings can only be changed locally) */
   viewerLocal: boolean;
+  /** stable id of this VibePortal, for the device list */
+  instanceId: string;
   passwordSet: boolean;
   /** https address reachable from the internet (tunnel or the configured public URL) */
   publicUrl?: string;

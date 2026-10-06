@@ -40,6 +40,15 @@ You run several agents at once. Somewhere a session is waiting for a permission,
 - 📱 **Your desk, in your pocket.** A password-protected link (with a permanent address through ngrok or Tailscale), a phone layout with a bottom tab bar, and one-click official Remote Control.
 - 🔒 **Local first.** Everything is read from `~/.claude` and `~/.codex`; tokens never leave your machine except to the providers' own endpoints.
 
+## Decentralized by design
+
+There is **no VibePortal server, no VibePortal account and no telemetry** — so there is no central place where your data, chats or tokens could leak from.
+
+- **Everything stays on your machines.** Each copy of VibePortal runs on your own computer and reads what Claude Code and Codex already store there (`~/.claude`, `~/.codex`). Machines talk to each other directly — on your LAN, or through a tunnel you choose.
+- **Your logins never move.** Claude / ChatGPT tokens are read locally and sent only to Anthropic's and OpenAI's own endpoints, exactly like the CLIs do. They are never copied, uploaded or shown in the UI.
+- **Sign-in is checked locally.** A password is stored only as a scrypt hash on that machine; Google sign-in is verified on each machine with Google's public keys (no client secret anywhere), and your device list lives in a hidden app folder in **your own** Google Drive.
+- **What remains yours to decide:** with public access on, traffic passes through the relay you picked (ngrok, Tailscale, …), and anyone with your password or Google account could drive your agents — use a strong password and keep the Google account to yourself.
+
 ## Screenshots
 
 <p align="center"><img src="docs/images/tasks.png" alt="Tasks: live plan, tool calls and the agent's words; send the next instruction"></p>
@@ -81,6 +90,7 @@ The builds are unsigned: Windows SmartScreen may ask you to confirm ("More info 
 | **Skills** | Lists the VibePortal skill library, Claude Code / Codex user skills and the skill folders of your repos (name and description read straight from SKILL.md — no model calls). SKILL.md files that tasks write are archived to `~/.vibeportal/skills` automatically; add / edit by hand, install into Claude Code or Codex with one click, attach to a new task (the instruction lists the SKILL.md paths and the agent reads them) |
 | **Resources** | CPU (per core), memory / swap, NVIDIA GPU (utilization, VRAM, temperature, power, GPU processes), disks and the busiest processes (Claude / Codex marked) of this machine or a remote one, with a 10-minute trend and plain-language findings; sampled only while the page is open |
 | **Remote** | One switch for LAN / phone access (addresses + QR code); an **access password** (links and QR codes then carry no token — scan and sign in); **access from the internet** through a tunnel — a **fixed address** with ngrok (free account, static domain) or Tailscale Funnel, or a temporary one with localhost.run / Pinggy over the built-in ssh (no install, no account) or a Cloudflare quick tunnel — or your own public address, password required; merge other machines running VibePortal (e.g. GPU servers) — their tasks and limits show up here and actions are forwarded; LAN auto-discovery |
+| **Google sign-in** | "Sign in with Google" on every device, verified locally; "Your devices" lists all VibePortals bound to the account, kept in your own Google Drive |
 | **Also** | English / Chinese, light / dark theme, phone layout with a bottom tab bar, tray menu, launch at login |
 
 ## Where the data comes from
@@ -212,6 +222,8 @@ Everything except `/api/health` and `/api/login` needs `Authorization: Bearer <t
 | POST / DELETE | `/api/official/claude` | Start / stop Claude Remote Control for a folder `{cwd}` / `?cwd=` |
 | POST | `/api/official/codex/start\|stop\|pair` | Codex remote-control daemon / pairing code |
 | POST | `/api/login` | Password sign-in `{password}` → session token |
+| POST | `/api/login/google` | Google sign-in `{credential}` (an ID token) → session token |
+| POST | `/api/google/bind` | Bind the signed-in Google account to this machine (local only) |
 
 ## Configuration
 
@@ -232,6 +244,7 @@ Settings live in `~/.vibeportal/config.json` (mode 0600); most can be changed on
 - **From the internet**: set a password first, then turn on the tunnel (or enter your own public address); the QR code switches between internet and LAN.
   - **Fixed address (recommended)**: *ngrok* — a free account includes a static domain; install ngrok and sign in (`ngrok config add-authtoken …`, or paste the token in Settings); the domain is optional — empty uses your account's own. Selecting a relay starts it as soon as its checklist is complete, and a domain held by another ngrok session is retried until it's free. *Tailscale Funnel* — install Tailscale, `tailscale up`, allow Funnel when asked; the address is `https://<machine>.<tailnet>.ts.net`. Both connect over port 443.
   - **Temporary address, nothing to set up**: localhost.run (port 22) / Pinggy (port 443) over ssh — the free address changes now and then (the QR code follows it); Cloudflare quick tunnel (needs cloudflared and port 7844).
+- **Google sign-in & your devices**: Settings → Google account. Create a free OAuth client (Web application) in Google Cloud, add the origins the page lists (`http://localhost:8787`, your public link), keep the consent screen in Testing with your Gmail as a test user, enable the Google Drive API, paste the client ID and bind your account. Phones then get "Sign in with Google", and "Your devices" lists every VibePortal bound to the account (online status, one click to open — Google signs you in there automatically). Use the same client ID on every device.
 - **Merging other machines**: run VibePortal there (desktop or `node dist/server/cli.cjs`), allow remote access, copy the machine link from its Settings and add it under "Remote machines" here. Instances on the same LAN with remote access on are discovered automatically.
 - Remote tasks carry an `@machine` tag, get pet clones too, and their actions run on the machine that owns them.
 

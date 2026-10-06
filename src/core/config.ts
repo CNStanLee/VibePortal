@@ -41,6 +41,8 @@ export interface Config {
   ngrokDomain: string;
   ngrokAuthtoken: string;
   publicUrl: string;
+  googleClientId: string;
+  googleOwners: string[];
 }
 
 export function dataDir(): string {
@@ -82,6 +84,8 @@ function defaults(): Config {
     ngrokDomain: '',
     ngrokAuthtoken: '',
     publicUrl: '',
+    googleClientId: '',
+    googleOwners: [],
   };
 }
 
@@ -131,11 +135,16 @@ export function toPublic(cfg: Config): PublicSettings {
     ngrokDomain: cfg.ngrokDomain,
     ngrokAuthtokenSet: !!cfg.ngrokAuthtoken,
     publicUrl: cfg.publicUrl,
+    googleClientId: cfg.googleClientId,
+    googleOwners: [...cfg.googleOwners],
   };
 }
 
 /** Fields only a request from this machine may change. */
-export const LOCAL_ONLY_FIELDS = ['remotePassword', 'publicTunnel', 'tunnelProvider', 'ngrokDomain', 'ngrokAuthtoken', 'publicUrl', 'remoteAccess'] as const;
+export const LOCAL_ONLY_FIELDS = ['remotePassword', 'publicTunnel', 'tunnelProvider', 'ngrokDomain', 'ngrokAuthtoken', 'publicUrl', 'remoteAccess', 'googleClientId', 'googleOwners'] as const;
+
+/** Remote viewers can sign in: a password, or a bound Google account. */
+export const hasRemoteAuth = (cfg: Config) => !!cfg.remotePassword || (!!cfg.googleClientId && cfg.googleOwners.length > 0);
 
 export function hashPassword(pw: string): { salt: string; hash: string } {
   const salt = crypto.randomBytes(16).toString('base64url');
@@ -176,8 +185,7 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
   if (typeof p.suggestModel === 'string' && /^[\w.:-]{1,64}$/.test(p.suggestModel.trim())) next.suggestModel = p.suggestModel.trim();
   if (typeof p.remotePassword === 'string') {
     if (p.remotePassword === '') {
-      next.remotePassword = null;
-      next.publicTunnel = false; // never public without a password
+      next.remotePassword = null; // the tunnel stays only if a Google account still guards it (checked below)
     } else {
       if (p.remotePassword.length < 8) throw Object.assign(new Error('password must be at least 8 characters'), { status: 400 });
       next.remotePassword = hashPassword(p.remotePassword);
@@ -185,7 +193,7 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
     next.sessionSecret = crypto.randomBytes(32).toString('base64url');
   }
   if (typeof p.publicTunnel === 'boolean') {
-    if (p.publicTunnel && !next.remotePassword) throw Object.assign(new Error('set a password before enabling public access'), { status: 400 });
+    if (p.publicTunnel && !hasRemoteAuth(next)) throw Object.assign(new Error('set a password or bind a Google account before enabling public access'), { status: 400 });
     next.publicTunnel = p.publicTunnel;
   }
   if (['ngrok', 'tailscale', 'localhost.run', 'pinggy', 'cloudflare'].includes(p.tunnelProvider as string)) next.tunnelProvider = p.tunnelProvider!;
@@ -202,9 +210,22 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
   if (typeof p.publicUrl === 'string') {
     const u = p.publicUrl.trim().replace(/\/+$/, '');
     if (u && !/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/.test(u)) throw Object.assign(new Error('public URL must look like https://host[/path]'), { status: 400 });
-    if (u && !next.remotePassword) throw Object.assign(new Error('set a password before adding a public address'), { status: 400 });
+    if (u && !hasRemoteAuth(next)) throw Object.assign(new Error('set a password or bind a Google account before adding a public address'), { status: 400 });
     next.publicUrl = u;
   }
+  if (typeof p.googleClientId === 'string') {
+    const id = p.googleClientId.trim();
+    if (id && !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(id)) throw Object.assign(new Error('a Google client id ends in .apps.googleusercontent.com'), { status: 400 });
+    if (id !== next.googleClientId) next.sessionSecret = crypto.randomBytes(32).toString('base64url');
+    next.googleClientId = id;
+  }
+  // accounts are added only through a verified Google sign-in (POST /api/google/bind); a patch can remove them
+  if (Array.isArray(p.googleOwners)) {
+    const keep = next.googleOwners.filter((e) => (p.googleOwners as unknown[]).includes(e));
+    if (keep.length !== next.googleOwners.length) next.sessionSecret = crypto.randomBytes(32).toString('base64url');
+    next.googleOwners = keep;
+  }
+  if (!hasRemoteAuth(next)) next.publicTunnel = false;
   if (typeof p.anthropicAdminKey === 'string') next.anthropicAdminKey = p.anthropicAdminKey.trim();
   if (typeof p.openaiAdminKey === 'string') next.openaiAdminKey = p.openaiAdminKey.trim();
   return next;

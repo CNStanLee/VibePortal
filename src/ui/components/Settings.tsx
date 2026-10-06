@@ -3,6 +3,7 @@ import type { PublicSettings, ServerInfo, SettingsPatch } from '../../shared/typ
 import { api, desktop, getToken } from '../api';
 import { useT } from '../i18n';
 import { RemoteSettings } from './Remote';
+import { GoogleSettings } from './GoogleAccount';
 
 export function SettingsPage({ info }: { info: ServerInfo | null }) {
   const { t, lang } = useT();
@@ -141,6 +142,7 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
       </section>
 
       <RemoteSettings settings={s} onSettings={setS} />
+      <GoogleSettings settings={s} onSettings={setS} />
 
       {info && (
         <p className="muted small">

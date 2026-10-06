@@ -326,6 +326,7 @@ const info: ServerInfo = {
   lanUrls: ['http://192.168.1.20:8787'],
   discovered: [],
   viewerLocal: true,
+  instanceId: 'demo0001',
   passwordSet: true,
   publicUrl: 'https://workstation-demo.ngrok-free.app',
   tunnel: { state: 'on', provider: 'ngrok', url: 'https://workstation-demo.ngrok-free.app' },
@@ -354,6 +355,8 @@ const settings: PublicSettings = {
   ngrokDomain: '',
   ngrokAuthtokenSet: false,
   publicUrl: '',
+  googleClientId: '1234567890-demo.apps.googleusercontent.com',
+  googleOwners: ['you@gmail.com'],
 };
 
 const launch: LaunchOptions = {

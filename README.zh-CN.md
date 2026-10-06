@@ -40,6 +40,15 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 - 📱 **把工位装进口袋。** 带密码保护的链接（用 ngrok 或 Tailscale 获得永久地址）、带底部标签栏的手机界面、一键官方 Remote Control。
 - 🔒 **本地优先。** 所有数据读自 `~/.claude` 和 `~/.codex`；令牌只发给各自的官方接口，不会离开你的电脑。
 
+## 去中心化设计
+
+**没有 VibePortal 服务器、没有 VibePortal 账号、没有遥测**——也就不存在一个可能泄漏你的数据、对话或令牌的中心。
+
+- **一切留在你自己的机器上。** 每份 VibePortal 都运行在你的电脑上，只读取 Claude Code 和 Codex 本来就存在本机的数据（`~/.claude`、`~/.codex`）。机器之间直接通信——在局域网内，或经过你自己选择的隧道。
+- **登录凭据从不移动。** Claude / ChatGPT 的令牌只在本机读取，只发往 Anthropic 和 OpenAI 自己的接口，和官方 CLI 完全一样；不会被复制、上传，也不会显示在界面上。
+- **登录在本机校验。** 密码只以 scrypt 哈希的形式保存在那台机器上；Google 登录由每台机器用 Google 的公钥自行验证（任何地方都没有 client secret），设备列表存在**你自己** Google Drive 的隐藏应用文件夹里。
+- **仍需你自己把关的：** 开启公网访问后，流量会经过你选择的中转（ngrok、Tailscale……），持有你的密码或 Google 账号的人可以操控你的智能体——请使用强密码，并保管好 Google 账号。
+
 ## 截图
 
 <p align="center"><img src="docs/images/tasks-zh.png" alt="任务：实时计划、工具调用和智能体的话；发送下一条指令"></p>
@@ -81,6 +90,7 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 | **技能** | 列出 VibePortal 技能库、Claude Code / Codex 的用户技能和各仓库的技能文件夹（名称和描述直接读 SKILL.md，不调用模型）；任务中写出的 SKILL.md 自动归档到 `~/.vibeportal/skills`；可手动新建 / 编辑，一键安装到 Claude Code 或 Codex，开新任务时勾选技能（指令里附上 SKILL.md 路径，由 Agent 自己读取） |
 | **资源** | 本机（或远程机器）的 CPU（每核）、内存 / 交换区、NVIDIA GPU（利用率、显存、温度、功耗、GPU 进程）、各磁盘、占用最高的进程（标出 Claude / Codex 进程），近 10 分钟趋势和自动分析；只在页面打开时采样 |
 | **远程** | 一键允许局域网 / 手机访问（显示地址和二维码）；**访问密码**（设置后链接和二维码不再含令牌，扫码后密码登录）；**公网访问**：隧道——**固定地址**用 ngrok（免费账号自带固定域名）或 Tailscale Funnel；临时地址用 localhost.run / Pinggy（走系统自带的 ssh，无需安装和账号）或 Cloudflare 快速隧道——或填写自己的公网地址，必须先设置密码；可添加其它机器上的 VibePortal（如 GPU 服务器），其任务和限额合并显示，动作也会转发过去；局域网内自动发现 |
+| **Google 登录** | 每台设备都可“使用 Google 登录”，在本机校验；“我的设备”列出绑定到该账号的所有 VibePortal，列表存在你自己的 Google Drive |
 | **其它** | 中英双语、浅色 / 深色主题、移动端适配、托盘菜单、开机自启 |
 
 ## 数据从哪里来
@@ -212,6 +222,8 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 | GET / PUT / DELETE | `/api/skills/:id` | 查看 / 修改 SKILL.md `{content}` / 删除（仅技能库） |
 | POST / DELETE | `/api/skills/:id/install?target=claude\|codex` | 安装 / 卸载到 Claude Code 或 Codex |
 | POST | `/api/login` | 密码登录 `{password}` → 会话令牌（无需令牌） |
+| POST | `/api/login/google` | Google 登录 `{credential}`（ID token）→ 会话令牌 |
+| POST | `/api/google/bind` | 把已登录的 Google 账号绑定到本机（仅本机） |
 
 ## 配置
 
@@ -232,6 +244,7 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 - **公网访问**：先设置密码，再开启隧道（或填写自己的公网地址），二维码可在公网 / 局域网之间切换。
   - **固定地址（推荐）**：*ngrok*——免费账号自带固定域名，安装 ngrok 并登录（`ngrok config add-authtoken …`，或在设置里粘贴 token），域名可留空使用账号自带的；选择中转后，清单里的步骤一完成就会自动启动，域名被别的 ngrok 会话占用时会自动重试直到空出；*Tailscale Funnel*——安装 Tailscale、`tailscale up`，按提示允许 Funnel，地址为 `https://<机器>.<tailnet>.ts.net`。两者都走 443 端口。
   - **临时地址、无需设置**：localhost.run（22 端口）/ Pinggy（443 端口）走 ssh，免费地址会不定期更换（二维码自动跟随）；Cloudflare 快速隧道（需要 cloudflared 和 7844 端口）。
+- **Google 登录与我的设备**：设置 → Google 账号。在 Google Cloud 中免费创建一个 OAuth 客户端（Web 应用），加入页面列出的来源（`http://localhost:8787`、你的公网链接），同意屏幕保持“测试”并把你的 Gmail 加为测试用户，启用 Google Drive API，然后粘贴客户端 ID 并绑定账号。之后手机上会出现“使用 Google 登录”，“我的设备”列出绑定到该账号的所有 VibePortal（在线状态，一键打开——Google 会在那台设备上自动登录）。所有设备使用同一个客户端 ID。
 - **汇总其它机器**：在那台机器上运行 VibePortal（桌面版或 `node dist/server/cli.cjs`），打开远程访问，复制它设置页里的“连接链接”，粘贴到本机“远程机器”中添加即可。同一局域网内开启了远程访问的实例会被自动发现。
 - 远程任务带 `@机器名` 标记，宠物分身同样会显示它们；“下一步动作”会在任务所在的机器上执行。
 
