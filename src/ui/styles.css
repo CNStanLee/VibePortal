@@ -36,6 +36,10 @@
   --pet-prop: #52514e;
   --pet-warn: #fab219;
   --bubble: rgba(255, 255, 255, 0.96);
+  /* motion: things arrive fast and settle softly; springs overshoot a touch */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
@@ -188,16 +192,28 @@ pre {
   color: var(--muted);
 }
 .conn-dot {
+  position: relative;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--muted);
+  transition: background 0.3s ease;
+}
+/* a slow radar ping while the live feed is connected */
+.conn.on .conn-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--good);
+  animation: ping 2.4s var(--ease-out) infinite;
 }
 .conn.on .conn-dot {
   background: var(--good);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent);
 }
 .tabs {
+  position: relative;
   display: flex;
   gap: 4px;
   margin: 0 auto;
@@ -215,11 +231,30 @@ pre {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  z-index: 1;
+  transition: color 0.25s ease, transform 0.15s ease;
+}
+.tabs button:hover {
+  color: var(--ink);
+}
+.tabs button:active {
+  transform: scale(0.95);
 }
 .tabs button[aria-selected='true'] {
-  background: var(--surface);
   color: var(--ink);
+}
+/* the selected-tab highlight, slid from tab to tab (placed by App) */
+.tab-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 8px;
+  background: var(--surface);
   box-shadow: var(--shadow);
+  pointer-events: none;
+}
+.tab-pill.ready {
+  transition: transform 0.45s var(--ease-spring), width 0.45s var(--ease-out), height 0.45s var(--ease-out);
 }
 .count {
   background: var(--accent);
@@ -228,6 +263,7 @@ pre {
   border-radius: 999px;
   padding: 0 6px;
   line-height: 17px;
+  animation: badge-pop 0.45s var(--ease-spring);
 }
 .actions {
   display: flex;
@@ -240,6 +276,10 @@ pre {
   padding: 6px 12px;
   font-weight: 550;
   white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease, filter 0.2s ease, transform 0.15s ease;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -255,6 +295,10 @@ pre {
   background: var(--accent);
   color: #fff;
   border-color: transparent;
+}
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .link {
   border: 0;
@@ -284,6 +328,14 @@ pre {
   padding: 18px 20px;
   box-shadow: var(--shadow);
   min-width: 0;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+/* no transform here: dialogs open from inside cards are position: fixed */
+@media (hover: hover) {
+  .card:hover {
+    border-color: color-mix(in srgb, var(--ink) 16%, transparent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 10px 30px rgba(0, 0, 0, 0.08);
+  }
 }
 .card-head {
   display: flex;
@@ -392,7 +444,9 @@ pre {
   height: 100%;
   border-radius: 999px;
   background: var(--accent);
-  transition: width 0.6s ease;
+  transition: width 0.8s var(--ease-out), background 0.3s ease;
+  transform-origin: left;
+  animation: fill-grow 0.9s var(--ease-out) backwards;
 }
 .meter.sev-warning .meter-track {
   background: var(--warning-track);
@@ -791,9 +845,12 @@ table.data th {
   overflow: hidden;
 }
 .task-progress span {
+  position: relative;
   display: block;
   height: 100%;
   background: var(--accent);
+  overflow: hidden;
+  transition: width 0.7s var(--ease-out);
 }
 .empty {
   padding: 16px 0 4px;
@@ -908,7 +965,8 @@ table.data th {
   display: grid;
   gap: 2px;
   font-size: 13px;
-  animation: slide-in 0.25s ease;
+  /* in with a spring, and fade out just before the dashboard drops it (8 s) */
+  animation: slide-in 0.45s var(--ease-spring), toast-out 0.35s var(--ease-in-out) 7.65s forwards;
 }
 .toast.lvl-warning {
   border-left-color: var(--warning);
@@ -918,7 +976,13 @@ table.data th {
 }
 @keyframes slide-in {
   from {
-    transform: translateX(20px);
+    transform: translateX(32px) scale(0.96);
+    opacity: 0;
+  }
+}
+@keyframes toast-out {
+  to {
+    transform: translateX(24px);
     opacity: 0;
   }
 }
@@ -956,6 +1020,15 @@ html.pet-page body {
   gap: 2px;
   width: 168px;
 }
+/* in the page the bubble widens smoothly (the desktop window is refitted instead) */
+.pet-floating .pet-unit {
+  transition: width 0.4s var(--ease-out);
+}
+.pet-fold {
+  transition: height 0.38s var(--ease-out);
+  overflow: clip;
+  overflow-clip-margin: 6px;
+}
 .pet-unit.open {
   width: 300px;
 }
@@ -964,6 +1037,16 @@ html.pet-page body {
   cursor: grab;
   touch-action: none;
   line-height: 0;
+  transform-origin: 50% 90%;
+  transition: transform 0.5s var(--ease-spring);
+}
+/* picked up while dragged; dropped with a little bounce */
+.pet-stage.dragging .pet-hit {
+  transform: translateY(-6px) scale(1.05) rotate(-4deg);
+  transition-duration: 0.25s;
+}
+.pet-stage.dragging .mascot {
+  filter: drop-shadow(0 12px 10px rgba(0, 0, 0, 0.22));
 }
 /* at-a-glance quota bars in the pet's lower-right corner; fill = used */
 .pet-minibars {
@@ -996,7 +1079,9 @@ html.pet-page body {
   right: 0;
   bottom: 0;
   background: var(--good);
-  transition: height 0.5s ease;
+  transition: height 0.8s var(--ease-out);
+  transform-origin: bottom;
+  animation: fill-grow-y 0.9s var(--ease-out) backwards;
 }
 .pet-minibars .mb.sev-warning {
   background: var(--warning-track);
@@ -1059,6 +1144,21 @@ html.pet-page body {
 .pet-unit.attention .pet-bubble {
   border-color: color-mix(in srgb, var(--warning) 70%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 25%, transparent), 0 4px 18px rgba(0, 0, 0, 0.18);
+}
+/* needs you: a ring keeps rippling out of the bubble */
+.pet-unit.attention .pet-bubble::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  border: 2px solid var(--warning);
+  pointer-events: none;
+  animation: ring-out 1.8s var(--ease-out) infinite;
+}
+/* a bubble being opened pops up from the pet */
+.pet-unit.open .pet-bubble {
+  transform-origin: 50% 100%;
+  animation: bubble-pop 0.42s var(--ease-spring);
 }
 .pet-bubble::after {
   content: '';
@@ -1173,11 +1273,15 @@ html.pet-page body {
   overflow: hidden;
 }
 .pet-plan-track span {
+  position: relative;
   display: block;
   height: 100%;
   background: var(--accent);
   border-radius: 999px;
-  transition: width 0.4s ease;
+  overflow: hidden;
+  transition: width 0.7s var(--ease-out);
+  transform-origin: left;
+  animation: fill-grow 0.8s var(--ease-out) backwards;
 }
 .pet-plan-n {
   font-weight: 700;
@@ -1231,7 +1335,7 @@ html.pet-page body {
 }
 .pet-feed-row.latest {
   color: var(--ink);
-  animation: feed-in 0.35s ease-out;
+  animation: feed-in 0.45s var(--ease-out);
 }
 .pet-feed-icon {
   flex: none;
@@ -1265,7 +1369,7 @@ html.pet-page body {
 @keyframes feed-in {
   from {
     opacity: 0;
-    transform: translateY(3px);
+    transform: translateY(5px);
   }
 }
 .pet-meters {
@@ -1348,10 +1452,13 @@ html.pet-page body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
   cursor: pointer;
   margin-bottom: 14px;
-  transition: transform 0.2s ease, background 0.2s ease;
+  transition: transform 0.4s var(--ease-spring), background 0.25s ease, color 0.25s ease;
 }
 .pet-add:hover {
-  transform: scale(1.1);
+  transform: scale(1.12);
+}
+.pet-add.on:hover {
+  transform: rotate(45deg) scale(1.12);
 }
 .pet-add.on {
   transform: rotate(45deg);
@@ -1360,7 +1467,8 @@ html.pet-page body {
 }
 .pet-launch {
   width: 300px;
-  animation: feed-in 0.2s ease-out;
+  transform-origin: 100% 100%;
+  animation: bubble-pop 0.4s var(--ease-spring);
 }
 .new-task {
   display: grid;
@@ -1520,7 +1628,8 @@ html.pet-page body {
   place-items: start center;
   padding: 8vh 16px 16px;
   overflow: auto;
-  animation: feed-in 0.15s ease-out;
+  backdrop-filter: blur(3px);
+  animation: fade-in 0.25s ease-out;
 }
 .modal {
   width: min(560px, 100%);
@@ -1528,6 +1637,7 @@ html.pet-page body {
   border-radius: 16px;
   padding: 16px 18px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: modal-in 0.45s var(--ease-spring);
 }
 
 /* model + effort chip in a task bubble */
@@ -2089,7 +2199,9 @@ html.pet-page body {
   height: 100%;
   border-radius: 999px;
   background: var(--accent);
-  transition: width 0.5s ease;
+  transition: width 0.8s var(--ease-out);
+  transform-origin: left;
+  animation: fill-grow 0.9s var(--ease-out) backwards;
 }
 .sev-warning > .res-meter,
 .sev-warning .res-meter {
@@ -2360,6 +2472,10 @@ html.pet-page body {
 .task-panel {
   grid-column: 1 / -1;
   padding: 4px 0 6px 124px;
+  animation: feed-in 0.4s var(--ease-out);
+}
+.task {
+  transition: background 0.25s ease;
 }
 .task.open {
   background: var(--surface-2);
@@ -2740,8 +2856,13 @@ html.pet-page body {
   *::before,
   *::after {
     animation-duration: 0.001s !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition: none !important;
+  }
+  /* their exit is a delayed animation: without motion they just stay until dropped */
+  .toast {
+    animation: none !important;
   }
 }
 
@@ -2835,11 +2956,19 @@ html.pet-page body {
   }
   .tabs button[aria-selected='true'] {
     color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .tab-pill {
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
     box-shadow: none;
   }
   .tab-ic {
     display: block;
+    transition: transform 0.3s var(--ease-out);
+  }
+  /* the icon of the tab you land on bounces */
+  .tabs button[aria-selected='true'] .tab-ic {
+    animation: tab-hop 0.5s var(--ease-spring);
   }
   .tab-label {
     max-width: 100%;
@@ -2935,6 +3064,7 @@ html.pet-page body {
     overflow: auto;
     border-radius: 18px 18px 0 0;
     padding: 14px 14px max(14px, env(safe-area-inset-bottom));
+    animation: sheet-up 0.42s var(--ease-out);
   }
   .nt-row {
     flex-wrap: wrap;
@@ -2996,6 +3126,9 @@ html.pet-page body {
     left: 12px;
     right: 12px;
     bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+  .toast {
+    animation: rise-in 0.45s var(--ease-spring), fade-out 0.35s var(--ease-in-out) 7.65s forwards;
   }
 }
 
@@ -3889,6 +4022,7 @@ html.pet-page body {
     width: 104px;
   }
   .pet-floating .pet-unit.open .pet-bubble {
+    animation: sheet-up 0.42s var(--ease-out);
     position: fixed;
     left: 10px;
     right: 10px;
@@ -3899,10 +4033,12 @@ html.pet-page body {
     z-index: 45;
     font-size: 12.5px;
   }
-  .pet-floating .pet-unit.open .pet-bubble::after {
+  .pet-floating .pet-unit.open .pet-bubble::after,
+  .pet-floating .pet-unit.open .pet-bubble::before {
     display: none;
   }
   .pet-floating .pet-launch {
+    animation: sheet-up 0.42s var(--ease-out);
     position: fixed;
     left: 10px;
     right: 10px;
@@ -3938,6 +4074,9 @@ html.pet-page body {
   right: 12px;
   bottom: 12px;
   z-index: 40;
+  transform-origin: 100% 100%;
+  animation: pet-arrive 0.5s var(--ease-spring);
+  transition: transform 0.35s var(--ease-spring);
   width: 52px;
   height: 52px;
   border-radius: 16px;
@@ -3964,8 +4103,23 @@ html.pet-page body {
   place-items: center;
   padding: 0 4px;
 }
+.pet-mini:hover {
+  transform: scale(1.08) rotate(-4deg);
+}
+.pet-mini:active {
+  transform: scale(0.94);
+}
 .pet-mini.attention {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 45%, transparent), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.pet-mini.attention::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 19px;
+  border: 2px solid var(--warning);
+  pointer-events: none;
+  animation: ring-out 1.8s var(--ease-out) infinite;
 }
 @media (max-width: 760px) {
   .pet-mini {
@@ -3978,5 +4132,135 @@ html.pet-page body {
     width: 30px;
     height: 30px;
     font-size: 19px;
+  }
+}
+
+/* ── motion ─────────────────────────────────────────────────────────────── */
+/* a page you switch to rises in, a card at a time (zero specificity: own animations win) */
+:where(.content > * > *, .providers > *) {
+  animation: rise-in 0.55s var(--ease-out) backwards;
+}
+:where(.content > * > :nth-child(2), .providers > :nth-child(2)) {
+  animation-delay: 50ms;
+}
+:where(.content > * > :nth-child(3)) {
+  animation-delay: 100ms;
+}
+:where(.content > * > :nth-child(4)) {
+  animation-delay: 150ms;
+}
+:where(.content > * > :nth-child(5)) {
+  animation-delay: 200ms;
+}
+:where(.content > * > :nth-child(n + 6)) {
+  animation-delay: 250ms;
+}
+/* the floating pet hops in from its corner (also when restored from the button) */
+.pet-floating {
+  transform-origin: 100% 100%;
+  animation: pet-arrive 0.55s var(--ease-spring);
+}
+/* running bars: a highlight sweeps along the fill */
+.task.st-running .task-progress span::after,
+.pet-bubble.mood-working .pet-plan-track span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: translateX(-100%);
+  animation: sheen 1.9s var(--ease-in-out) infinite;
+}
+/* the theme switch spreads out of its button (App drives the clip-path) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+}
+@keyframes sheet-up {
+  from {
+    opacity: 0.6;
+    transform: translateY(40%);
+  }
+}
+@keyframes bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+}
+@keyframes pet-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.6);
+  }
+}
+@keyframes badge-pop {
+  from {
+    transform: scale(0.3);
+  }
+}
+@keyframes tab-hop {
+  40% {
+    transform: translateY(-4px) scale(1.12);
+  }
+}
+@keyframes fill-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes fill-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes sheen {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+@keyframes ring-out {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.08, 1.14);
+    opacity: 0;
   }
 }

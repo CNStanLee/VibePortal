@@ -70,8 +70,8 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
   };
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [floatPos, setFloatPos] = useState<{ x: number; y: number } | null>(() => loadFloatPos());
-  const floatPosRef = useRef(floatPos);
-  floatPosRef.current = floatPos;
+  // where a floating-pet drag has got to: moved straight on the element, committed on release
+  const dragPos = useRef<{ x: number; y: number } | null>(null);
   const drag = useRef<{ sx: number; sy: number; wx: number; wy: number; moved: boolean; ready: boolean } | null>(null);
   const lastClick = useRef(0);
   const clickTimer = useRef<number | undefined>(undefined);
@@ -135,14 +135,20 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
       Object.assign(d, { wx: r?.left ?? 0, wy: r?.top ?? 0, ready: true });
     }
   };
+  const finishMove = () => {
+    stageRef.current?.classList.remove('dragging');
+    if (variant === 'window') return bridge?.petDragEnd();
+    const p = dragPos.current;
+    dragPos.current = null;
+    if (!p) return;
+    setFloatPos(p);
+    saveFloatPos(p);
+  };
   /** A drag ends with the button — also when the release never arrived (window moved under the cursor). */
   const endDrag = () => {
     const d = drag.current;
     drag.current = null;
-    if (d?.moved) {
-      if (variant === 'window') bridge?.petDragEnd();
-      else saveFloatPos(floatPosRef.current);
-    }
+    if (d?.moved) finishMove();
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
@@ -153,19 +159,20 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     const dx = e.screenX - d.sx;
     const dy = e.screenY - d.sy;
     if (!d.moved && Math.hypot(dx, dy) < 4) return;
+    if (!d.moved) stageRef.current?.classList.add('dragging');
     d.moved = true;
-    if (variant === 'window' && bridge) bridge.setPetPos(d.wx + dx, d.wy + dy);
-    else setFloatPos(clampToViewport(d.wx + dx, d.wy + dy));
+    if (variant === 'window' && bridge) return bridge.setPetPos(d.wx + dx, d.wy + dy);
+    // no re-render per pointer move: the stage follows the finger directly
+    const p = clampToViewport(d.wx + dx, d.wy + dy);
+    dragPos.current = p;
+    const el = stageRef.current;
+    if (el) Object.assign(el.style, { left: `${p.x}px`, top: `${p.y}px`, right: 'auto', bottom: 'auto' });
   };
   const onPointerUp = (key: string) => () => {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
-    if (d.moved) {
-      if (variant === 'window') bridge?.petDragEnd();
-      else saveFloatPos(floatPosRef.current);
-      return;
-    }
+    if (d.moved) return finishMove();
     const now = Date.now();
     if (now - lastClick.current < 320) {
       window.clearTimeout(clickTimer.current);
@@ -239,20 +246,23 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
                   ×
                 </button>
               )}
-              {u.task ? (
-                <TaskBubble
-                  unit={u}
-                  provider={provider}
-                  open={isOpen}
-                  onClose={() => {
-                    setOpen(null);
-                    setDismissTick((x) => x + 1);
-                  }}
-                  onHistory={variant === 'floating' ? () => setHistoryId(u.task!.id) : undefined}
-                />
-              ) : (
-                <HomeBubble unit={u} snapshot={snapshot} provider={provider} open={isOpen} />
-              )}
+              {/* the desktop window is resized to fit, so only the in-page pet folds smoothly */}
+              <Fold smooth={variant === 'floating'}>
+                {u.task ? (
+                  <TaskBubble
+                    unit={u}
+                    provider={provider}
+                    open={isOpen}
+                    onClose={() => {
+                      setOpen(null);
+                      setDismissTick((x) => x + 1);
+                    }}
+                    onHistory={variant === 'floating' ? () => setHistoryId(u.task!.id) : undefined}
+                  />
+                ) : (
+                  <HomeBubble unit={u} snapshot={snapshot} provider={provider} open={isOpen} />
+                )}
+              </Fold>
             </div>
             <div
               className="pet-hit"
@@ -280,6 +290,25 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
         );
       })}
       {overflow > 0 && <div className="pet-more">{fmt(t.more, { n: overflow })}</div>}
+    </div>
+  );
+}
+
+/** Grows and shrinks with its content (a bubble opening, a new feed line) instead of jumping. */
+function Fold({ smooth, children }: { smooth: boolean; children: React.ReactNode }) {
+  const inner = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState<number>();
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!smooth || !el) return;
+    const ro = new ResizeObserver(() => setH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [smooth]);
+  if (!smooth) return <>{children}</>;
+  return (
+    <div className="pet-fold" style={{ height: h }}>
+      <div ref={inner}>{children}</div>
     </div>
   );
 }

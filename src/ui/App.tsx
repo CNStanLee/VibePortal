@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { ServerInfo } from '../shared/types';
 import { api, auth, desktop, setToken, useLive, type Notice } from './api';
 import { dicts, I18n, useT, type Lang } from './i18n';
@@ -71,16 +72,34 @@ export function Dashboard() {
     if (location.hash !== target) history.replaceState(null, '', location.pathname + location.search + target);
   }, [tab]);
   useEffect(() => applyTheme(theme), [theme]);
+  const tabsRef = useRef<HTMLElement>(null);
+  useTabPill(tabsRef, tab, lang);
 
   if (authFailed) return <TokenGate />;
 
-  const setTheme = (th: Theme) => {
-    setThemeState(th);
+  const setTheme = (th: Theme, from?: { x: number; y: number }) => {
+    const commit = () => {
+      flushSync(() => setThemeState(th));
+      applyTheme(th);
+    };
     try {
       localStorage.setItem('vp.theme', th);
     } catch {
       /* ignore */
     }
+    // the new theme spreads out of the button in a circle, where the browser can
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } };
+    if (!from || !doc.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) return commit();
+    const r = Math.hypot(Math.max(from.x, innerWidth - from.x), Math.max(from.y, innerHeight - from.y));
+    void doc
+      .startViewTransition(commit)
+      .ready.then(() =>
+        document.documentElement.animate(
+          { clipPath: [`circle(0px at ${from.x}px ${from.y}px)`, `circle(${r}px at ${from.x}px ${from.y}px)`] },
+          { duration: 520, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' },
+        ),
+      )
+      .catch(() => {});
   };
   const refresh = async () => {
     setRefreshing(true);
@@ -105,12 +124,17 @@ export function Dashboard() {
             <span className="conn-dot" aria-hidden /> {connected ? t.live : t.offline}
           </span>
         </div>
-        <nav className="tabs" role="tablist">
+        <nav className="tabs" role="tablist" ref={tabsRef}>
+          <span className="tab-pill" aria-hidden />
           {TABS.map((k) => (
             <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
               <TabIcon tab={k} />
               <span className="tab-label">{t[k]}</span>
-              {k === 'tasks' && running > 0 && <span className="count">{running}</span>}
+              {k === 'tasks' && running > 0 && (
+                <span className="count" key={running}>
+                  {running}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -129,7 +153,10 @@ export function Dashboard() {
           </button>
           <button
             className="btn ghost"
-            onClick={() => setTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system')}
+            onClick={(e) => {
+              const b = e.currentTarget.getBoundingClientRect();
+              setTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system', { x: b.left + b.width / 2, y: b.top + b.height / 2 });
+            }}
             title={`${t.theme}: ${theme}`}
             aria-label={`${t.theme}: ${theme}`}
           >
@@ -138,7 +165,8 @@ export function Dashboard() {
         </div>
       </header>
 
-      <main className="content">
+      {/* keyed by tab: each page plays its entrance */}
+      <main className="content" key={snapshot ? tab : 'loading'}>
         {!snapshot ? (
           <div className="loading">
             <div className="spinner" aria-hidden />
@@ -326,6 +354,32 @@ function TabIcon({ tab }: { tab: Tab }) {
       <path d={d[tab]} />
     </svg>
   );
+}
+
+/** The selected-tab highlight slides (and stretches) from tab to tab instead of jumping. */
+function useTabPill(ref: React.RefObject<HTMLElement | null>, tab: Tab, lang: Lang) {
+  useLayoutEffect(() => {
+    const nav = ref.current;
+    const pill = nav?.querySelector<HTMLElement>('.tab-pill');
+    if (!nav || !pill) return;
+    const place = () => {
+      const b = nav.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!b) return;
+      pill.style.transform = `translate(${b.offsetLeft}px, ${b.offsetTop}px)`;
+      pill.style.width = `${b.offsetWidth}px`;
+      pill.style.height = `${b.offsetHeight}px`;
+    };
+    place();
+    // only animate moves after the first placement
+    const raf = requestAnimationFrame(() => pill.classList.add('ready'));
+    const ro = new ResizeObserver(place);
+    ro.observe(nav);
+    nav.querySelectorAll('button').forEach((b) => ro.observe(b));
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [ref, tab, lang]);
 }
 
 function readTheme(): Theme {
