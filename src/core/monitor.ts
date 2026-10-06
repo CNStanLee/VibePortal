@@ -10,13 +10,14 @@ import { QuotaHistory } from './forecast';
 import { PriceBook } from './prices';
 import { RemoteHosts } from './remote';
 import fs from 'node:fs';
-import { ActionRunner, CLAUDE_EFFORTS, CODEX_EFFORTS, claudeContext, cleanRunOptions, codexContext, httpError, resolveBin, suggestDir, type RunOptions } from './actions';
+import { ActionRunner, CLAUDE_EFFORTS, CODEX_EFFORTS, claudeContext, claudeHistory, codexHistory, cleanRunOptions, codexContext, httpError, resolveBin, suggestDir, type RunOptions } from './actions';
 import { isDir, launchProjects } from './projects';
 import { ResourceMonitor } from './resources';
 import { SkillStore } from './skills';
 import { OfficialRemote } from './officialRemote';
+import { PermissionBroker } from './permissions';
 import { dataDir, type Config } from './config';
-import type { LaunchOptions, PetState, Provider, ProviderSnapshot, QuotaWindow, Snapshot, TaskContext, TaskInfo } from '../shared/types';
+import type { LaunchOptions, TaskHistory, PetState, Provider, ProviderSnapshot, QuotaWindow, Snapshot, TaskContext, TaskInfo } from '../shared/types';
 
 export interface Notice {
   title: string;
@@ -38,6 +39,14 @@ export class Monitor extends EventEmitter {
   readonly remotes = new RemoteHosts();
   readonly actions: ActionRunner;
   readonly resources = new ResourceMonitor();
+  /** permission prompts of background Claude runs, answered in the UI */
+  readonly permissions = new PermissionBroker((p) => {
+    if (p) {
+      const t = this.findTask(`dispatch:${p.jobId}`);
+      this.emit('notice', { title: `🔐 ${t?.title ?? 'Background run'}`, body: `${p.tool}: ${p.summary}`, level: 'warning', taskId: `dispatch:${p.jobId}` } satisfies Notice);
+    }
+    this.poke();
+  });
   readonly official = new OfficialRemote(() => ({ claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin, claudeDir: this.cfg.claudeDir }), () => this.poke());
   readonly skills = new SkillStore(() => ({ claudeDir: this.cfg.claudeDir, codexDir: this.cfg.codexDir, projects: this.skillProjects() }));
   private claudeLocal = new ClaudeLocalCollector();
@@ -133,7 +142,14 @@ export class Monitor extends EventEmitter {
   }
 
   taskContext(task: TaskInfo): TaskContext {
-    if (task.kind === 'dispatch') return { output: this.actions.jobOutput(task.id.replace(/^dispatch:/, '')) };
+    if (task.kind === 'dispatch') {
+      // the run's own session has the whole exchange; the CLI output is the fallback
+      const output = this.actions.jobOutput(task.id.replace(/^dispatch:/, ''));
+      const sid = task.sessionId;
+      const file = sid ? (task.provider === 'openai' ? this.codex.sessionFile(sid) : this.claudeLocal.transcripts.get(sid)) : undefined;
+      const ctx = file ? (task.provider === 'openai' ? codexContext(file) : claudeContext(file)) : {};
+      return { ...ctx, output: ctx.lastReply ? undefined : output };
+    }
     const sid = sessionIdOf(task);
     if (task.kind === 'claude-code' && sid) {
       const file = this.claudeLocal.transcripts.get(sid);
@@ -146,12 +162,23 @@ export class Monitor extends EventEmitter {
     return {};
   }
 
+  /** The whole conversation (most recent part) of a task, for its history view. */
+  taskHistory(task: TaskInfo): TaskHistory {
+    const sid = task.kind === 'dispatch' ? task.sessionId : sessionIdOf(task);
+    const codex = task.kind === 'codex' || (task.kind === 'dispatch' && task.provider === 'openai');
+    const file = sid ? (codex ? this.codex.sessionFile(sid) : this.claudeLocal.transcripts.get(sid)) : undefined;
+    if (file) return codex ? codexHistory(file) : claudeHistory(file);
+    // a run whose session isn't known (yet): its CLI output is the history
+    const out = task.kind === 'dispatch' ? this.actions.jobOutput(task.id.replace(/^dispatch:/, '')) : undefined;
+    return { items: out ? [{ role: 'assistant', text: out.trim() }] : [], truncated: false };
+  }
+
   async suggest(task: TaskInfo, lang: 'zh' | 'en') {
     return this.actions.suggest(task, this.taskContext(task), { claudeBin: this.cfg.claudeBin, model: this.cfg.suggestModel, lang });
   }
 
   continueTask(task: TaskInfo, prompt: string, run: RunOptions = {}) {
-    const sid = sessionIdOf(task);
+    const sid = task.kind === 'dispatch' ? task.sessionId : sessionIdOf(task);
     if (!sid || !task.canContinue) throw httpError(400, 'This task cannot be continued');
     const r = this.actions.continue(task, sid, prompt, { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, run);
     if (task.provider) this.dispatchProvider.set(r.jobId, task.provider);
@@ -164,16 +191,48 @@ export class Monitor extends EventEmitter {
    * extension opens the thread (it can't prefill — the UI copies the text).
    */
   openInVscode(task: TaskInfo, prompt?: string) {
-    const sid = sessionIdOf(task);
+    const sid = task.kind === 'dispatch' ? task.sessionId : sessionIdOf(task);
     if (!sid) throw httpError(400, 'not an agent session');
     let url: string;
-    if (task.kind === 'claude-code') {
+    const kind = task.kind === 'dispatch' ? (task.provider === 'openai' ? 'codex' : 'claude-code') : task.kind;
+    if (kind === 'claude-code') {
       if (!/^[0-9a-f-]{36}$/i.test(sid)) throw httpError(400, 'invalid session id');
       url = `vscode://anthropic.claude-code/open?session=${encodeURIComponent(sid)}${prompt ? `&prompt=${encodeURIComponent(prompt.slice(0, 8000))}` : ''}`;
-    } else if (task.kind === 'codex') {
+    } else if (kind === 'codex') {
       url = `vscode://openai.chatgpt/local/${encodeURIComponent(sid)}`;
     } else throw httpError(400, 'only Claude Code / Codex sessions open in VS Code');
     this.actions.openUrl(url);
+  }
+
+  /**
+   * Once the server listens: background Claude runs get the permission tool,
+   * which asks this server (loopback + API token) and waits for your answer.
+   */
+  setPermissionEndpoint(url: string, token: string) {
+    const dir = path.join(dataDir(), 'runs');
+    // bundled next to the server / Electron main (unpacked from the asar so `node` can run it)
+    const script = path.join(__dirname, '..', 'mcp', 'permission.cjs').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+    this.actions.permissionConfig = (jobId) => {
+      if (!fs.existsSync(script)) return undefined;
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const file = path.join(dir, `${jobId}.mcp.json`);
+      const cfg = {
+        mcpServers: {
+          vibeportal: {
+            command: process.execPath,
+            args: [script],
+            // Electron's binary runs scripts as plain Node with this; the token never shows in `ps`
+            env: { ELECTRON_RUN_AS_NODE: '1', VP_URL: url, VP_TOKEN: token, VP_JOB: jobId },
+          },
+        },
+      };
+      fs.writeFileSync(file, JSON.stringify(cfg), { mode: 0o600 });
+      return file;
+    };
+    this.actions.onJobEnd = (jobId) => {
+      this.permissions.endJob(jobId);
+      fs.rm(path.join(dir, `${jobId}.mcp.json`), { force: true }, () => {});
+    };
   }
 
   // ── new tasks ─────────────────────────────────────────────────────────────
@@ -342,6 +401,7 @@ export class Monitor extends EventEmitter {
       machineName: c.machineName,
       remotes: this.remotes.snapshots(c.hosts),
       official: this.official.state(),
+      permissions: this.permissions.list(),
     };
     this.emit('snapshot', this.snapshot);
   }
@@ -361,6 +421,7 @@ export class Monitor extends EventEmitter {
       const sid = j.sessionId ?? linked.get(j.id);
       if (sid) {
         this.actions.setJobSession(j.id, sid);
+        this.tasks.linkDispatch(j.id, sid);
         linked.set(j.id, sid);
         // a session we already know belongs to the run: don't show it twice
         tasks = tasks.filter((x) => sessionIdOf(x) !== sid || x.kind === 'dispatch');
@@ -370,11 +431,15 @@ export class Monitor extends EventEmitter {
       const t = tasks.find((x) => x.kind === 'codex' && x.cwd === j.cwd && x.startedAt && Date.parse(x.startedAt) >= j.startedAt - 5000);
       if (!t) continue;
       this.actions.setJobSession(j.id, sessionIdOf(t)!);
+      this.tasks.linkDispatch(j.id, sessionIdOf(t)!);
       linked.set(j.id, sessionIdOf(t)!);
       tasks = tasks.filter((x) => x !== t);
     }
     const agentOf = new Map(jobs.map((j) => [`dispatch:${j.id}`, j.agent]));
-    return tasks.map((t) => {
+    return tasks.map((x) => {
+      // a run waiting for a permission answer needs you
+      const asks = x.kind === 'dispatch' ? this.permissions.forJob(x.id.replace(/^dispatch:/, '')) : [];
+      const t: TaskInfo = asks.length ? { ...x, permissions: asks, state: 'waiting', detail: `🔐 ${asks[0].tool}: ${asks[0].summary}` } : x;
       const sid = t.kind === 'dispatch' ? linked.get(t.id.replace(/^dispatch:/, '')) : undefined;
       if (!sid) return t;
       const codex = agentOf.get(t.id) === 'codex';

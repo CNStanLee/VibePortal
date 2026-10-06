@@ -306,8 +306,30 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         return json(res, 200, await checkProvider(provider, monitor.config));
       }
 
+      // ── permission prompts of background runs ───────────────────────────
+      // the run's MCP tool asks (only from this machine) and waits for the answer
+      if (p === '/api/permissions/request' && req.method === 'POST') {
+        if (!isLocalRequest(req)) return json(res, 403, { error: 'only the local permission tool may ask' });
+        const body = await readJson(req);
+        const job = String(body?.job ?? '');
+        if (!/^dispatch-[a-z0-9]+$/.test(job)) return json(res, 400, { error: 'unknown run' });
+        const d = await monitor.permissions.request(job, String(body?.tool_name ?? 'tool').slice(0, 100), body?.input ?? {});
+        return json(res, 200, d);
+      }
+      const pm = /^\/api\/permissions\/([0-9a-f]{12})$/.exec(p);
+      if (pm && req.method === 'POST') {
+        const body = await readJson(req);
+        const ok = monitor.permissions.answer(pm[1], body?.allow ? { behavior: 'allow' } : { behavior: 'deny', message: 'Denied in VibePortal.' }, !!body?.always);
+        return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'already answered' });
+      }
+
       // ── official remote control ──────────────────────────────────────────
       if (p === '/api/official' && req.method === 'GET') return json(res, 200, monitor.official.state());
+      if (p === '/api/official/trust' && req.method === 'POST') {
+        const cwd = String((await readJson(req))?.cwd ?? '');
+        if (!(await monitor.official.trustClaudeFolder(cwd))) return json(res, 409, { error: 'Claude Code kept overwriting the setting — try again' });
+        return json(res, 200, { ok: true });
+      }
       if (p === '/api/official/claude') {
         if (req.method === 'POST') {
           const cwd = String((await readJson(req))?.cwd ?? '');
@@ -360,7 +382,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       }
 
       // ── task actions: /api/tasks/<id>[/context|/suggest|/continue|/open] ──
-      const tm = /^\/api\/tasks\/([^/]+)(?:\/(context|suggest|continue|open|vscode))?$/.exec(p);
+      const tm = /^\/api\/tasks\/([^/]+)(?:\/(context|history|suggest|continue|open|vscode))?$/.exec(p);
       if (tm) {
         const id = decodeURIComponent(tm[1]);
         const action = tm[2];
@@ -374,6 +396,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         const task = monitor.findTask(id);
         if (!task) return json(res, 404, { error: 'task not found' });
         if (action === 'context' && req.method === 'GET') return json(res, 200, monitor.taskContext(task));
+        if (action === 'history' && req.method === 'GET') return json(res, 200, monitor.taskHistory(task));
         if (action === 'suggest' && req.method === 'POST') {
           const body = await readJson(req);
           return json(res, 200, { suggestions: await monitor.suggest(task, body?.lang === 'en' ? 'en' : 'zh') });
@@ -398,7 +421,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       return json(res, 404, { error: 'not found' });
     } catch (e) {
       const status = (e as { status?: number }).status ?? 500;
-      return json(res, status, { error: (e as Error).message });
+      return json(res, status, { error: (e as Error).message, code: (e as { code?: unknown }).code });
     }
   };
 
@@ -462,6 +485,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   boundHost = host;
   const addr = server.address();
   boundPort = typeof addr === 'object' && addr ? addr.port : opts.port;
+  monitor.setPermissionEndpoint(`http://127.0.0.1:${boundPort}`, monitor.config.apiToken);
   await syncTunnel();
 
   return {

@@ -8,6 +8,7 @@ import { TaskActions } from './TaskActions';
 import { ActivityFeed, ModelChip, PlanBar, ProgressBar } from './Activity';
 import { PlanDate, ResetCreditsLine } from './ProviderCard';
 import { NewTask } from './NewTask';
+import { PermissionPrompt, TaskHistoryView } from './TaskDetail';
 import { PixelText } from './PixelText';
 
 interface Props {
@@ -52,6 +53,7 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
   const [open, setOpen] = useState<string | null>(null);
   const [dismissTick, setDismissTick] = useState(0);
   const [launching, setLaunching] = useState(false);
+  const [historyId, setHistoryId] = useState<string | null>(null);
   const [floatPos, setFloatPos] = useState<{ x: number; y: number } | null>(() => loadFloatPos());
   const floatPosRef = useRef(floatPos);
   floatPosRef.current = floatPos;
@@ -157,6 +159,9 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
         }
       }}
     >
+      {historyId && snapshot?.tasks.find((x) => x.id === historyId) && (
+        <TaskHistoryView task={snapshot.tasks.find((x) => x.id === historyId)!} device={snapshot.machineName} onClose={() => setHistoryId(null)} />
+      )}
       {variant === 'floating' && onHide && (
         <button className="pet-x" onClick={onHide} aria-label={t.hidePet} title={t.hidePet}>
           ×
@@ -195,6 +200,7 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
                     setOpen(null);
                     setDismissTick((x) => x + 1);
                   }}
+                  onHistory={variant === 'floating' ? () => setHistoryId(u.task!.id) : undefined}
                 />
               ) : (
                 <HomeBubble unit={u} snapshot={snapshot} provider={provider} open={isOpen} />
@@ -229,7 +235,7 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
   );
 }
 
-function TaskBubble({ unit, provider, open, onClose }: { unit: Unit; provider?: ProviderSnapshot; open: boolean; onClose: () => void }) {
+function TaskBubble({ unit, provider, open, onClose, onHistory }: { unit: Unit; provider?: ProviderSnapshot; open: boolean; onClose: () => void; onHistory?: () => void }) {
   const { t, lang } = useT();
   const task = unit.task!;
   const w = task.workload;
@@ -246,6 +252,7 @@ function TaskBubble({ unit, provider, open, onClose }: { unit: Unit; provider?: 
         {task.title}
       </div>
       <ModelChip task={task} editable={open} />
+      {task.permissions && <PermissionPrompt items={task.permissions} compact />}
       {/* "needs you" details (permission requests…) matter more than the feed */}
       {task.detail && (task.state === 'waiting' || !feed.length) && !open && <div className="pet-detail">{task.detail}</div>}
       {act?.plan && <PlanBar plan={act.plan} open={open} />}
@@ -270,7 +277,7 @@ function TaskBubble({ unit, provider, open, onClose }: { unit: Unit; provider?: 
       )}
       {open && (
         <>
-          <TaskActions task={task} compact onDone={onClose} />
+          <TaskActions task={task} compact onDone={onClose} onHistory={onHistory} />
           {provider && <QuotaRows quotas={provider.quotas} provider={provider} lang={lang} />}
         </>
       )}

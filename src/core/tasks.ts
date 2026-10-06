@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { TaskInfo, TaskState } from '../shared/types';
 import type { ActivityLog } from './activity';
+import { dataDir } from './config';
+
+const RUN_KEEP_MS = 7 * 86400_000;
 
 interface HookObs {
   sessionId: string;
@@ -21,6 +24,51 @@ const TASK_STATES: TaskState[] = ['running', 'waiting', 'idle', 'done', 'failed'
 export class TaskTracker {
   private hooks = new Map<string, HookObs>();
   private custom = new Map<string, TaskInfo>();
+  private saveTimer?: NodeJS.Timeout;
+
+  constructor() {
+    this.loadRuns();
+  }
+
+  // Background runs are conversations you come back to (from the phone, too): keep them
+  // across restarts in ~/.vibeportal/runs/history.json.
+  private runsFile() {
+    return path.join(dataDir(), 'runs', 'history.json');
+  }
+
+  private loadRuns() {
+    try {
+      const list = JSON.parse(fs.readFileSync(this.runsFile(), 'utf8')) as TaskInfo[];
+      for (const t of list) {
+        if (t?.kind !== 'dispatch' || typeof t.id !== 'string') continue;
+        // a run that was going when VibePortal stopped didn't finish under our eyes
+        const interrupted = t.state === 'running' || t.state === 'waiting';
+        this.custom.set(t.id.replace(/^dispatch:/, ''), {
+          ...t,
+          state: interrupted ? 'idle' : t.state,
+          detail: interrupted ? 'Stopped when VibePortal restarted' : t.detail,
+          permissions: undefined,
+          canContinue: !!t.sessionId,
+        });
+      }
+    } catch {
+      /* first run */
+    }
+  }
+
+  private saveRuns() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      try {
+        const runs = [...this.custom.values()].filter((t) => t.kind === 'dispatch').slice(-50);
+        fs.mkdirSync(path.dirname(this.runsFile()), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(this.runsFile(), JSON.stringify(runs, null, 1), { mode: 0o600 });
+      } catch (e) {
+        console.warn('[tasks] could not save runs', (e as Error).message);
+      }
+    }, 500);
+    this.saveTimer.unref?.();
+  }
 
   /** Ingests a Claude Code hook payload (the JSON Claude Code writes to the hook's stdin). */
   /** Hook payloads from VibePortal's own `claude -p` suggestion runs are accepted but ignored. */
@@ -75,9 +123,10 @@ export class TaskTracker {
   }
 
   /** Background runs started from VibePortal ("continue with an instruction"). */
-  upsertDispatch(job: { id: string; title: string; state: TaskState; detail?: string; cwd?: string }, provider?: TaskInfo['provider']) {
+  upsertDispatch(job: { id: string; title: string; state: TaskState; detail?: string; cwd?: string; sessionId?: string }, provider?: TaskInfo['provider']) {
     const prev = this.custom.get(job.id);
     const now = new Date().toISOString();
+    const sessionId = job.sessionId ?? prev?.sessionId;
     this.custom.set(job.id, {
       id: `dispatch:${job.id}`,
       kind: 'dispatch',
@@ -86,9 +135,22 @@ export class TaskTracker {
       state: job.state,
       detail: job.detail,
       cwd: job.cwd,
+      sessionId,
+      // a finished run can be continued: its session is complete on disk
+      canContinue: !!sessionId && job.state !== 'running',
       startedAt: prev?.startedAt ?? now,
       updatedAt: now,
     });
+    this.saveRuns();
+  }
+
+  /** A background run's session became known (Codex rollouts are matched after the start). */
+  linkDispatch(jobId: string, sessionId: string) {
+    const t = this.custom.get(jobId);
+    if (t && !t.sessionId) {
+      this.custom.set(jobId, { ...t, sessionId, canContinue: t.state !== 'running' });
+      this.saveRuns();
+    }
   }
 
   upsertCustom(body: any): TaskInfo | string {
@@ -113,7 +175,9 @@ export class TaskTracker {
   }
 
   removeCustom(id: string): boolean {
-    return this.custom.delete(id.replace(/^(custom|dispatch):/, ''));
+    const ok = this.custom.delete(id.replace(/^(custom|dispatch):/, ''));
+    if (ok && id.startsWith('dispatch:')) this.saveRuns();
+    return ok;
   }
 
   /**
@@ -198,7 +262,9 @@ export class TaskTracker {
     for (const [k, t] of this.custom) {
       const age = now - Date.parse(t.updatedAt);
       const finished = t.state === 'done' || t.state === 'failed';
-      if ((finished && age > 3600_000) || age > 24 * 3600_000) this.custom.delete(k);
+      if (t.kind === 'dispatch') {
+        if (age > RUN_KEEP_MS) this.custom.delete(k);
+      } else if ((finished && age > 3600_000) || age > 24 * 3600_000) this.custom.delete(k);
     }
     return [...this.custom.values()];
   }

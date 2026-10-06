@@ -149,6 +149,10 @@ export interface TaskInfo {
   alive?: boolean;
   /** where the conversation lives: the VS Code extension or a terminal CLI */
   ide?: 'vscode' | 'terminal';
+  /** background runs: the agent session they write to (to continue them later) */
+  sessionId?: string;
+  /** permission requests of this run waiting for an answer */
+  permissions?: PendingPermission[];
   workload?: Workload;
   /** recent progress parsed from the transcript / hooks, for the pet's speech bubble */
   activity?: TaskActivity;
@@ -189,6 +193,16 @@ export interface TaskActivity {
   plan?: TaskPlan;
 }
 
+/** A background run wants to use a tool that needs approval. */
+export interface PendingPermission {
+  id: string;
+  jobId: string;
+  tool: string;
+  /** the command / file / URL, one line */
+  summary: string;
+  createdAt: string;
+}
+
 export interface Workload {
   /** average over the last 5 minutes */
   tokensPerMin: number;
@@ -199,6 +213,23 @@ export interface Workload {
   model?: string;
   /** reasoning effort of the latest turn (low … max), when the log records it */
   effort?: string;
+}
+
+/** One entry of a conversation, for the task's history view. */
+export interface HistoryItem {
+  role: 'user' | 'assistant' | 'tool' | 'result';
+  ts?: string;
+  text: string;
+  /** tool calls: the tool name and the activity verb (localized in the UI) */
+  tool?: string;
+  verb?: ActivityVerb;
+  error?: boolean;
+}
+
+export interface TaskHistory {
+  items: HistoryItem[];
+  /** older entries were left out */
+  truncated: boolean;
 }
 
 export interface TaskContext {
@@ -249,6 +280,8 @@ export interface Snapshot {
   remotes: RemoteHostSnapshot[];
   /** official remote control (Claude remote-control environments, Codex daemon) */
   official?: OfficialRemoteState;
+  /** permission requests of background runs waiting for an answer */
+  permissions?: PendingPermission[];
 }
 
 export interface OfficialRemoteState {
@@ -382,7 +415,7 @@ export interface LaunchAgentInfo {
 }
 
 /** default = the user's own Claude Code / Codex permission settings; edits = may change files in the folder */
-export type LaunchPermission = 'default' | 'edits';
+export type LaunchPermission = 'auto' | 'ask' | 'edits' | 'default';
 
 export interface LaunchRequest {
   agent: LaunchAgent;

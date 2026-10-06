@@ -20,6 +20,8 @@ const targets = [
   { ...common, entryPoints: ['src/server/cli.ts'], outfile: 'dist/server/cli.cjs', banner: { js: '#!/usr/bin/env node' } },
   { ...common, entryPoints: ['src/electron/main.ts'], outfile: 'dist/electron/main.cjs' },
   { ...common, entryPoints: ['src/electron/preload.ts'], outfile: 'dist/electron/preload.cjs', sourcemap: false },
+  // started by `claude` as an MCP server, so it must run on its own (no electron)
+  { ...common, entryPoints: ['src/mcp/permission.ts'], outfile: 'dist/mcp/permission.cjs', sourcemap: false },
 ];
 
 if (watch) {

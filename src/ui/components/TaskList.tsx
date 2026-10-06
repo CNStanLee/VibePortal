@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { TaskInfo } from '../../shared/types';
 import { TaskActions } from './TaskActions';
+import { PermissionPrompt, TaskHistoryView } from './TaskDetail';
 import { ActivityFeed, ModelChip, PlanBar, activityLine } from './Activity';
 import { ClaudeMark, CodexMark } from './Brand';
 import { api } from '../api';
@@ -17,12 +18,27 @@ const STATE_ICON: Record<TaskInfo['state'], string> = {
 
 const KIND_LABEL: Record<string, string> = { 'claude-code': 'Claude Code', codex: 'Codex', custom: 'Custom', dispatch: 'Run' };
 
-export function TaskList({ tasks, compact = false, expandable = false }: { tasks: TaskInfo[]; compact?: boolean; expandable?: boolean }) {
+export function TaskList({
+  tasks,
+  compact = false,
+  expandable = false,
+  machineName,
+}: {
+  tasks: TaskInfo[];
+  compact?: boolean;
+  expandable?: boolean;
+  /** this machine's name, shown on local tasks (remote ones show their host) */
+  machineName?: string;
+}) {
   const { t, lang } = useT();
   const [open, setOpen] = useState<string | null>(null);
+  const [historyId, setHistoryId] = useState<string | null>(null);
   const shown = compact ? tasks.filter((x) => x.state !== 'idle').slice(0, 6) : tasks;
+  const historyTask = tasks.find((x) => x.id === historyId);
   if (!shown.length) return <p className="muted empty">{t.noTasks}</p>;
   return (
+    <>
+    {historyTask && <TaskHistoryView task={historyTask} device={historyTask.host ?? machineName} onClose={() => setHistoryId(null)} />}
     <ul className="tasks">
       {shown.map((task) => (
         <li key={task.id} className={`task st-${task.state} ${open === task.id ? 'open' : ''} ${expandable ? 'expandable' : ''}`}>
@@ -55,8 +71,13 @@ export function TaskList({ tasks, compact = false, expandable = false }: { tasks
                 {KIND_LABEL[task.kind] ?? task.kind}
               </span>
               <span className="task-name">{task.title}</span>
-              {task.host && <span className="host-tag">@{task.host}</span>}
+              {(task.host || machineName) && (
+                <span className={`host-tag ${task.host ? '' : 'local'}`} title={t.machine}>
+                  🖥 {task.host ?? machineName}
+                </span>
+              )}
             </div>
+            {task.permissions && open !== task.id && <PermissionPrompt items={task.permissions} compact />}
             {open !== task.id && <LatestActivity task={task} />}
             {(task.detail || task.cwd) && (
               <div className="task-detail">
@@ -98,12 +119,14 @@ export function TaskList({ tasks, compact = false, expandable = false }: { tasks
               <ModelChip task={task} />
               {task.activity?.plan && <PlanBar plan={task.activity.plan} open />}
               {!!task.activity?.feed.length && <ActivityFeed items={task.activity.feed} max={6} />}
-              <TaskActions task={task} onDone={() => setOpen(null)} />
+              {task.permissions && <PermissionPrompt items={task.permissions} />}
+              <TaskActions task={task} onDone={() => setOpen(null)} onHistory={() => setHistoryId(task.id)} />
             </div>
           )}
         </li>
       ))}
     </ul>
+    </>
   );
 }
 

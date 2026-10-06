@@ -260,3 +260,25 @@ test('Google ID tokens: signature, audience, expiry and verified e-mail are all 
   await assert.rejects(verifyGoogleIdToken(forged, cid, [jwk]), /signature/);
   await assert.rejects(verifyGoogleIdToken(sign(good, 'nope'), cid, [jwk]), /unknown signing key/);
 });
+
+test('trusting a folder for Claude Remote Control keeps the rest of ~/.claude.json', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { OfficialRemote } = await import('../src/core/officialRemote');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-trust-'));
+  const claudeDir = path.join(home, '.claude');
+  fs.mkdirSync(claudeDir);
+  const repo = path.join(home, 'repo');
+  fs.mkdirSync(path.join(repo, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ numStartups: 42, projects: { '/other': { allowedTools: ['Read'] } } }), { mode: 0o600 });
+  const rc = new OfficialRemote(() => ({ claudeBin: '', codexBin: '', claudeDir }), () => {});
+  assert.equal(rc.claudeTrusted(repo), false);
+  assert.equal(await rc.trustClaudeFolder(repo), true);
+  const after = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
+  assert.equal(after.numStartups, 42, 'other settings kept');
+  assert.deepEqual(after.projects['/other'], { allowedTools: ['Read'] });
+  assert.equal(after.projects[repo].hasTrustDialogAccepted, true);
+  assert.equal(rc.claudeTrusted(path.join(repo, 'sub')), true, 'sub-folders inherit the trust');
+  assert.equal(fs.statSync(path.join(home, '.claude.json')).mode & 0o777, 0o600, 'file mode kept');
+});

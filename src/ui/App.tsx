@@ -158,7 +158,7 @@ export function Dashboard() {
                   {t.tasks} →
                 </button>
               </header>
-              <TaskList tasks={snapshot.tasks} compact />
+              <TaskList tasks={snapshot.tasks} compact machineName={snapshot.machineName} />
             </section>
           </div>
         ) : tab === 'analysis' ? (
@@ -171,7 +171,7 @@ export function Dashboard() {
           <div className="tasks-page">
             <section className="card">
               <h2>{t.tasks}</h2>
-              <TaskList tasks={snapshot.tasks} expandable />
+              <TaskList tasks={snapshot.tasks} expandable machineName={snapshot.machineName} />
             </section>
             <OfficialRemoteCard state={snapshot.official} />
             <DevicesCard />

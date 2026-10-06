@@ -42,12 +42,16 @@ export class OfficialRemote {
     };
   }
 
+  /** Claude Code's global state file, where folder trust is recorded. */
+  private claudeJson(): string {
+    const file = path.join(path.dirname(this.bins().claudeDir), '.claude.json');
+    return fs.existsSync(file) ? file : path.join(os.homedir(), '.claude.json');
+  }
+
   /** Is `cwd` (or a folder above it) trusted in Claude Code? Remote control refuses untrusted folders. */
   claudeTrusted(cwd: string): boolean {
     try {
-      const file = path.join(path.dirname(this.bins().claudeDir), '.claude.json');
-      const alt = path.join(os.homedir(), '.claude.json');
-      const cfg = JSON.parse(fs.readFileSync(fs.existsSync(file) ? file : alt, 'utf8'));
+      const cfg = JSON.parse(fs.readFileSync(this.claudeJson(), 'utf8'));
       const projects: Record<string, { hasTrustDialogAccepted?: boolean }> = cfg.projects ?? {};
       for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
         if (projects[d]?.hasTrustDialogAccepted) return true;
@@ -63,7 +67,7 @@ export class OfficialRemote {
     if (this.claude.has(cwd)) return;
     if (this.claude.size >= MAX_CLAUDE_ENVS) throw httpError(429, `at most ${MAX_CLAUDE_ENVS} remote-control folders at a time`);
     if (!this.claudeTrusted(cwd)) {
-      throw httpError(409, `Claude Code hasn't trusted this folder yet — run \`claude\` once in ${cwd} and accept the trust prompt, then try again`);
+      throw Object.assign(httpError(409, `Claude Code hasn't trusted this folder yet`), { code: 'untrusted' });
     }
     const bin = resolveBin('claude', this.bins().claudeBin);
     if (!bin) throw httpError(501, 'Claude Code CLI not found');
@@ -104,6 +108,35 @@ export class OfficialRemote {
       this.onChange();
     });
     this.onChange();
+  }
+
+  /**
+   * What accepting Claude Code's "Do you trust the files in this folder?" prompt
+   * does: mark the folder trusted in ~/.claude.json. Claude Code processes rewrite
+   * that file too, so it's replaced atomically and checked again afterwards.
+   */
+  async trustClaudeFolder(cwd: string): Promise<boolean> {
+    if (!path.isAbsolute(cwd) || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw httpError(400, 'cwd must be an existing folder');
+    const file = this.claudeJson();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (this.claudeTrusted(cwd)) return true;
+      let cfg: any = {};
+      let mode = 0o600;
+      try {
+        cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+        mode = fs.statSync(file).mode & 0o777;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw httpError(500, `cannot read ${file}`);
+      }
+      cfg.projects = cfg.projects ?? {};
+      cfg.projects[cwd] = { ...(cfg.projects[cwd] ?? {}), hasTrustDialogAccepted: true };
+      const tmp = `${file}.vibeportal-${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode });
+      fs.renameSync(tmp, file);
+      // a Claude Code process writing at the same moment could undo it: look again
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    return this.claudeTrusted(cwd);
   }
 
   stopClaude(cwd: string) {

@@ -204,7 +204,8 @@ function snapshot(): Snapshot {
       ide: 'terminal',
       canContinue: true,
       cwd: '/home/dev/src/infra',
-      detail: 'Permission: Bash (terraform apply)',
+      detail: '🔐 Bash: terraform apply plan.out',
+      permissions: [{ id: 'aaaaaaaaaaaa', jobId: 'dispatch-demo', tool: 'Bash', summary: 'terraform apply plan.out', createdAt: ago(30) }],
       updatedAt: ago(30),
       workload: { tokensPerMin: 0, sessionTokens: 640_000, contextTokens: 88_000, contextWindow: 1_000_000, model: 'claude-sonnet-5-5', effort: 'medium' },
       activity: { feed: [{ kind: 'tool', ts: ago(32), verb: 'ask', text: 'Apply the plan to staging?' }] },
@@ -391,6 +392,13 @@ export function demoCall(method: string, path: string): unknown {
   }
   if (p === 'api/official') return demoOfficial;
   if (p === 'api/tunnel/check') return { installed: true, version: '3.39.11', token: 'ngrok-config' };
+  if (/\/history$/.test(p)) {
+    const t = demoSnapshot().tasks.find((x) => p.includes(encodeURIComponent(x.id)));
+    const items = (t?.activity?.feed ?? []).map((f) =>
+      f.kind === 'tool' ? { role: 'tool' as const, verb: f.verb, tool: f.tool, text: f.text ?? '', ts: f.ts } : { role: f.kind === 'prompt' ? ('user' as const) : ('assistant' as const), text: f.text ?? '', ts: f.ts },
+    );
+    return { items, truncated: false };
+  }
   if (/\/context$/.test(p)) {
     const t = demoSnapshot().tasks.find((x) => p.includes(encodeURIComponent(x.id)));
     const feed = t?.activity?.feed ?? [];

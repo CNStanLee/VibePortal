@@ -16,7 +16,6 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 <a href="https://github.com/CNStanLee/VibePortal/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/CNStanLee/VibePortal?label=%E4%B8%8B%E8%BD%BD"></a>
 <img alt="platforms" src="https://img.shields.io/badge/platforms-Ubuntu%20%7C%20Windows%20%7C%20Web-blue">
 <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-<a href="#支持这个项目"><img alt="donate" src="https://img.shields.io/badge/%E2%9D%A4-%E6%8D%90%E5%8A%A9-ff69b4"></a>
 </p>
 
 <p align="center"><img src="docs/images/pets-zh.png" alt="每个运行中的任务一只分身，各自带实时进展对话框"></p>
@@ -25,15 +24,29 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 
 你同时开着好几个智能体：某个会话在等你授权，另一个刚做完，而每周额度比你以为的更接近上限。VibePortal 把这些都变成一眼就能看懂的东西。
 
-| | 传统桌面宠物 | 用量统计工具 / CLI | 智能体面板 | **VibePortal** |
-| --- | :---: | :---: | :---: | :---: |
-| 宠物跟着**真实的智能体工作**变化（在改什么、跑什么、读什么） | — | — | — | ✅ |
-| **每个任务一只分身**，各自显示实时进展、计划和模型 | — | — | 部分 | ✅ |
-| Claude **和** ChatGPT 的订阅限额、各窗口独立重置时间、**用完预测** | — | 部分 | — | ✅ |
-| 选模型和强度开启 / 续跑任务，**手机上**也行 | — | — | 部分 | ✅ |
-| 一键开启 Claude Code / Codex **官方 Remote Control** | — | — | — | ✅ |
-| 只读取本机已有数据——**无需额外登录、不消耗 Token** | ✅ | ✅ | — | ✅ |
-| 技能库、本机资源（CPU / GPU / 磁盘）、多机汇总 | — | — | 部分 | ✅ |
+| | 工具 | 它是什么 | VibePortal 多了什么 |
+| --- | --- | --- | --- |
+| **桌面宠物** | [Desktop Goose][goose] | 一只在桌面上乱跑、抢鼠标、拖来便签的捣蛋鹅 | 宠物由**你的智能体**驱动——它在改什么、跑什么、读什么，每个任务一只分身 |
+| | [Shimeji-ee][shimeji] | 可自定义、在屏幕上闲逛的桌面吉祥物 | 同上：宠物报告真实的工作、订阅限额和授权请求 |
+| | [BongoCat][bongo] | 跟着你的键盘和鼠标敲鼓的猫 | 它跟随的是智能体，而不是你的按键 |
+| **用量统计** | [ccusage][ccusage] | 从本地 JSONL 日志生成 Claude Code / Codex 用量报告的 CLI | 同样读取本地日志，另有 Claude 与 ChatGPT 的**实时订阅限额**、各窗口重置时间和用完预测——图形界面，手机上也能看 |
+| | [Claude Code Usage Monitor][ccmonitor] | 终端里监控 Claude Code Token 与花费，带计划限额和预测 | 还覆盖 Codex / ChatGPT、任务与进展、宠物、手机访问 |
+| | [CodexBar][codexbar] | macOS 菜单栏应用，显示 Codex、Claude 等的会话 / 每周限额和重置倒计时 | 支持 Ubuntu、Windows 和网页；任务进展、开新任务、发指令 |
+| **智能体管理** | [Claude Squad][squad] | 在 tmux 会话和 git worktree 中并排运行多个智能体的终端应用 | 直接看你已经在 VS Code 或终端里跑的会话，桌面和手机都行 |
+| | [opcode][opcode] | Claude Code 会话、自定义智能体和用量面板的桌面 GUI | Claude Code **和** Codex、两家的订阅限额、宠物、手机和远程机器 |
+| | [Vibe Kanban][kanban] | 编排和审阅编程智能体任务的看板 | 一眼可见的桌面伙伴：实时进展、限额、授权请求、一键追加指令 |
+
+<sub>描述均取自各项目自己的页面（2026 年 10 月）。</sub>
+
+[goose]: https://samperson.itch.io/desktop-goose
+[shimeji]: https://kilkakon.com/shimeji/
+[bongo]: https://github.com/ayangweb/BongoCat
+[ccusage]: https://github.com/ryoppippi/ccusage
+[ccmonitor]: https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor
+[codexbar]: https://github.com/steipete/CodexBar
+[squad]: https://github.com/smtg-ai/claude-squad
+[opcode]: https://github.com/winfunc/opcode
+[kanban]: https://github.com/BloopAI/vibe-kanban
 
 - 🦀 **有正事干的宠物。** 改代码时敲电脑、跑命令时炒菜、读文件戴眼镜看书、等待时喝茶——脚下的像素字写着 *COOKING… / FORGING…* 和所在仓库；对话框同步智能体的计划、最近的工具调用和它说的话。
 - ⚡ **靠得住的限额。** 与 `/usage`、`/status` 同源的数据，每个窗口有自己的重置时间，快用完**之前**就提醒你。
@@ -118,6 +131,8 @@ VibePortal 只读取本机已有的数据，不需要额外登录：
   - **VS Code 中的 Codex 会话** → 打开 `vscode://openai.chatgpt/local/<id>`，指令已复制到剪贴板（Codex 扩展不支持预填）；也可以 `codex exec resume` 在后台续跑同一个会话；
   - 其它 Codex 会话 → `codex exec resume <session> -`。
   - 指令通过 stdin 传入，不经过 shell。后台运行会作为“Run”任务出现，完成后可查看输出。headless 模式下需要权限确认的工具会被拒绝（取决于你的 Claude Code / Codex 权限设置）。
+- **权限**——新任务和指令默认使用 Claude Code 的 **auto 模式**（由它的安全分类器放行常规操作）。仍需授权的操作会以**允许 / 拒绝**的形式出现在面板、宠物对话框和手机上，可选“本次运行一直允许该工具”；15 分钟无人回答则自动拒绝。选择“每次问我”则全部询问。这是通过 Claude Code 的 permission-prompt 工具实现的：一个小型 MCP 服务器（`dist/mcp/permission.cjs`）经本机回环地址询问 VibePortal。Codex 在后台运行时没有询问机制：选“自动”或“改文件”会给它这个文件夹的写权限（`--sandbox workspace-write`）。
+- **后台运行**会保留 7 天（重启后也在），可以查看完整对话（📜 完整对话）并继续。VS Code 有意不在历史列表里显示 headless 会话，所以每个后台运行都有**在 VS Code 中打开**，按 id 打开这个会话本身。
 - **为什么不直接写入 VS Code 里的会话**：两个扩展都独占自己的会话（Claude 扩展为每个会话启动一个由它的 stdin 驱动的 `claude` 进程，Codex 扩展在每个窗口内运行私有的 `codex app-server`），外部进程无法安全写入。上面的深链接是扩展官方提供的入口。
 - 远程机器上的任务，动作会转发给那台机器的 VibePortal 执行。
 
@@ -125,7 +140,7 @@ VibePortal 只读取本机已有的数据，不需要额外登录：
 
 任务页底部的“在手机 / 网页上继续”卡片：
 
-- **Claude Code**：选一个文件夹点“开启”，VibePortal 在该文件夹运行 `claude remote-control --name <机器 · 文件夹> --no-create-session-in-dir`，显示 claude.ai/code 链接和二维码。用 Claude App 或浏览器打开后开启的会话在本机这个文件夹中运行。Claude Code 只允许在已信任的文件夹中这样做——没信任过的文件夹先在终端里运行一次 `claude` 接受信任提示（VibePortal 不会替你修改 `~/.claude.json`）。
+- **Claude Code**：选一个文件夹点“开启”，VibePortal 在该文件夹运行 `claude remote-control --name <机器 · 文件夹> --no-create-session-in-dir`，显示 claude.ai/code 链接和二维码。用 Claude App 或浏览器打开后开启的会话在本机这个文件夹中运行。Claude Code 只允许在已信任的文件夹中这样做。对还没信任的文件夹，VibePortal 会提供“信任此文件夹并开启”——与 Claude Code 自己的“是否信任此文件夹中的文件？”提示写入 `~/.claude.json` 的内容相同（信任后 Claude Code 会加载该文件夹的项目设置、hooks 和 MCP 服务器，只信任你了解的代码）。
 - **Codex**：点“开启”运行 `codex remote-control start`（官方 app-server 守护进程，首次会安装到 `~/.codex/packages/`），再点“获取配对码”，在 ChatGPT App（Codex → 连接电脑）中输入。“停止”运行 `codex remote-control stop`。
 
 VibePortal 只负责启动 / 停止官方 CLI 并显示它们的输出，不经手你的账号凭据。
@@ -285,14 +300,6 @@ src/
   ui/                        React 前端（面板、分析、设置、宠物；#/gallery 可预览所有宠物表情）
 test/                        单元测试（npm test）
 ```
-
-## 支持这个项目
-
-VibePortal 免费且开源。如果它帮你省了时间，可以请小螃蟹吃碗白米饭 🍚——用手机相机扫码，或打开 [revolut.me/changh3xx9](https://revolut.me/changh3xx9)：
-
-<p align="center"><a href="https://revolut.me/changh3xx9"><img src="docs/images/donate-revolut.png" width="200" alt="通过 Revolut 捐助"></a></p>
-
-点 Star、提 Issue 和 PR 也同样是很大的支持。谢谢！
 
 ## 致谢
 

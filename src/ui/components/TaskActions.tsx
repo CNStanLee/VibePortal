@@ -10,7 +10,21 @@ import { useT } from '../i18n';
  * "What next?" panel for one task: shows the last exchange, can ask Claude for
  * suggested next steps, and sends a new instruction (continue / fork in the background).
  */
-export function TaskActions({ task, compact = false, onDone }: { task: TaskInfo; compact?: boolean; onDone?: () => void }) {
+export function TaskActions({
+  task,
+  compact = false,
+  hideContext = false,
+  onDone,
+  onHistory,
+}: {
+  task: TaskInfo;
+  compact?: boolean;
+  /** the history view shows the conversation itself */
+  hideContext?: boolean;
+  onDone?: () => void;
+  /** opens the full conversation */
+  onHistory?: () => void;
+}) {
   const { t, lang } = useT();
   const [ctx, setCtx] = useState<TaskContext | null>(null);
   const [suggestions, setSuggestions] = useState<string[] | null>(null);
@@ -96,7 +110,7 @@ export function TaskActions({ task, compact = false, onDone }: { task: TaskInfo;
 
   return (
     <div className={`task-actions ${compact ? 'compact' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
-      {ctx === null ? (
+      {hideContext ? null : ctx === null ? (
         <div className="muted small">…</div>
       ) : (
         <>
@@ -184,6 +198,16 @@ export function TaskActions({ task, compact = false, onDone }: { task: TaskInfo;
         </>
       )}
       <div className="action-row">
+        {onHistory && (
+          <button className="btn ghost" onClick={onHistory}>
+            📜 {t.fullHistory}
+          </button>
+        )}
+        {(task.kind === 'claude-code' || task.kind === 'codex' || (task.kind === 'dispatch' && task.sessionId)) && !task.host && (
+          <button className="btn ghost" onClick={() => void api.openInVscode(task.id).then(() => setMsg(t.openedInVscode), (e) => setMsg((e as Error).message))} title={t.openInVscodeHelp}>
+            🧩 {t.openInVscode}
+          </button>
+        )}
         {task.canContinue && (
           <button className="btn ghost" onClick={suggest} disabled={!!busy}>
             💡 {busy === 'suggest' ? t.suggesting : t.suggest}

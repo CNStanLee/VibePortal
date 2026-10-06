@@ -54,7 +54,8 @@ export function NewTask({
   const [cwd, setCwd] = useState(last.cwd ?? '');
   const [model, setModel] = useState(last.model?.[last.agent ?? 'claude'] ?? '');
   const [effort, setEffort] = useState(last.effort?.[last.agent ?? 'claude'] ?? '');
-  const [permission, setPermission] = useState<LaunchPermission>(last.permission ?? 'default');
+  // starts at "auto"; a choice of "ask me" / "edit files" is remembered (older versions saved 'default')
+  const [permission, setPermission] = useState<LaunchPermission>(last.permission === 'ask' || last.permission === 'edits' ? last.permission : 'auto');
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -214,8 +215,10 @@ export function NewTask({
           <label>
             <span className="nt-label">{t.permission}</span>
             <select value={permission} onChange={(e) => setPermission(e.target.value as LaunchPermission)} title={t.permHelp}>
-              <option value="default">{t.permDefault}</option>
+              <option value="auto">{t.permAuto}</option>
+              <option value="ask">{t.permAsk}</option>
               <option value="edits">{t.permEdits}</option>
+              <option value="default">{t.permDefault}</option>
             </select>
           </label>
         )}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
-import type { LaunchOptions, LaunchRequest, OfficialRemoteState, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillInfo, Snapshot, TaskContext } from '../shared/types';
+import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillInfo, Snapshot, TaskContext } from '../shared/types';
 
 export interface Notice {
   title: string;
@@ -151,7 +151,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) throw new AuthError('unauthorized');
-  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    // keep the server's reason code (e.g. "untrusted") next to the message
+    throw Object.assign(new Error(err?.error ?? `HTTP ${res.status}`), { code: err?.code });
+  }
   return res.json();
 }
 
@@ -189,6 +193,8 @@ export const api = {
   saveSettings: (p: SettingsPatch) => call<PublicSettings>('PUT', 'api/settings', p),
   hookSnippet: () => call<unknown>('GET', 'api/hooks/snippet'),
   deleteTask: (id: string) => call<{ ok: boolean }>('DELETE', `api/tasks/${encodeURIComponent(id)}`),
+  taskHistory: (id: string) => call<TaskHistory>('GET', `api/tasks/${encodeURIComponent(id)}/history`),
+  answerPermission: (id: string, allow: boolean, always = false) => call<{ ok: boolean }>('POST', `api/permissions/${id}`, { allow, always }),
   taskContext: (id: string) => call<TaskContext>('GET', `api/tasks/${encodeURIComponent(id)}/context`),
   suggest: (id: string, lang: string) => call<{ suggestions: string[] }>('POST', `api/tasks/${encodeURIComponent(id)}/suggest`, { lang }),
   continueTask: (id: string, prompt: string, run: RunOverride = {}) => call<{ jobId: string }>('POST', `api/tasks/${encodeURIComponent(id)}/continue`, { prompt, ...run }),
@@ -206,6 +212,7 @@ export const api = {
   resources: (host?: string) => call<ResourceSnapshot>('GET', `api/resources${host ? `?host=${encodeURIComponent(host)}` : ''}`),
   openInVscode: (id: string, prompt?: string) => call<{ ok: boolean }>('POST', `api/tasks/${encodeURIComponent(id)}/vscode`, { prompt }),
   official: () => call<OfficialRemoteState>('GET', 'api/official'),
+  trustClaudeFolder: (cwd: string) => call<{ ok: boolean }>('POST', 'api/official/trust', { cwd }),
   startClaudeRemote: (cwd: string) => call<OfficialRemoteState>('POST', 'api/official/claude', { cwd }),
   stopClaudeRemote: (cwd: string) => call<OfficialRemoteState>('DELETE', `api/official/claude?cwd=${encodeURIComponent(cwd)}`),
   codexRemote: (action: 'start' | 'stop') => call<OfficialRemoteState>('POST', `api/official/codex/${action}`, {}),

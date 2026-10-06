@@ -1,6 +1,6 @@
 {
   "name": "vibeportal",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cross-platform (Ubuntu / Windows / Web) monitor for Claude & ChatGPT usage, subscription plans and agent tasks, with a desktop pet.",
   "author": "Changhong Li",
   "license": "MIT",
@@ -80,7 +80,8 @@
       ]
     },
     "asarUnpack": [
-      "assets/**"
+      "assets/**",
+      "dist/mcp/**"
     ]
   },
   "bin": {

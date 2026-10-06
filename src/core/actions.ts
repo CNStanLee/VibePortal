@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { dataDir } from './config';
-import type { TaskContext, TaskInfo } from '../shared/types';
+import type { HistoryItem, TaskContext, TaskHistory, TaskInfo } from '../shared/types';
+import { describeTool } from './activity';
 
 /**
  * "What next?" actions on a task: read its last exchange, ask Claude for a
@@ -109,6 +110,93 @@ export function codexContext(file: string): TaskContext {
   return { lastPrompt: clip(lastPrompt, 2000), lastReply: clip(lastReply, 4000) };
 }
 
+const HISTORY_MAX = 400;
+const textOf = (content: unknown): string =>
+  typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+          .filter((b: any) => b?.type === 'text' || b?.type === 'output_text' || b?.type === 'input_text')
+          .map((b: any) => b.text)
+          .join('\n')
+      : '';
+const toolItem = (name: string, input: unknown, cwd: string | undefined, ts?: string): HistoryItem => {
+  const d = describeTool(name, input, cwd);
+  return { role: 'tool', ts, tool: name, verb: d?.verb ?? 'tool', text: d?.text ?? '' };
+};
+const finish = (items: HistoryItem[]): TaskHistory => ({ items: items.slice(-HISTORY_MAX), truncated: items.length > HISTORY_MAX });
+
+/** The conversation of a Claude Code transcript: prompts, replies, tool calls and (short) results. */
+export function claudeHistory(file: string): TaskHistory {
+  const items: HistoryItem[] = [];
+  let cwd: string | undefined;
+  for (const line of tailLines(file, 12 << 20)) {
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (o.isSidechain || o.isMeta) continue;
+    cwd = o.cwd ?? cwd;
+    const content = o.message?.content;
+    if (o.type === 'user') {
+      if (Array.isArray(content)) {
+        for (const b of content) {
+          if (b?.type === 'tool_result') {
+            const t = textOf(b.content) || (typeof b.content === 'string' ? b.content : '');
+            if (t.trim()) items.push({ role: 'result', ts: o.timestamp, text: clip(t.trim(), 600)!, error: !!b.is_error });
+          }
+        }
+      }
+      const t = textOf(content).trim();
+      if (t && !t.startsWith('<')) items.push({ role: 'user', ts: o.timestamp, text: clip(t, 8000)! });
+    } else if (o.type === 'assistant' && Array.isArray(content)) {
+      for (const b of content) {
+        if (b?.type === 'text' && b.text?.trim()) items.push({ role: 'assistant', ts: o.timestamp, text: clip(b.text.trim(), 12000)! });
+        else if (b?.type === 'tool_use') items.push(toolItem(b.name, b.input, cwd, o.timestamp));
+      }
+    }
+  }
+  return finish(items);
+}
+
+/** The conversation of a Codex rollout. */
+export function codexHistory(file: string): TaskHistory {
+  const items: HistoryItem[] = [];
+  let cwd: string | undefined;
+  for (const line of tailLines(file, 12 << 20)) {
+    if (!line.includes('"event_msg"') && !line.includes('"response_item"') && !line.includes('"session_meta"')) continue;
+    let o: any;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const p = o.payload ?? {};
+    if (o.type === 'session_meta') cwd = p.cwd ?? cwd;
+    if (o.type === 'event_msg') {
+      if (p.type === 'user_message' && typeof p.message === 'string' && !p.message.startsWith('<')) items.push({ role: 'user', ts: o.timestamp, text: clip(p.message.trim(), 8000)! });
+      if (p.type === 'agent_message' && typeof p.message === 'string') items.push({ role: 'assistant', ts: o.timestamp, text: clip(p.message.trim(), 12000)! });
+    } else if (o.type === 'response_item') {
+      if (p.type === 'function_call') {
+        let args: unknown = {};
+        try {
+          args = JSON.parse(p.arguments ?? '{}');
+        } catch {
+          /* partial */
+        }
+        items.push(toolItem(p.name, args, cwd, o.timestamp));
+      } else if (p.type === 'custom_tool_call') items.push(toolItem(p.name, p.input, cwd, o.timestamp));
+      else if ((p.type === 'function_call_output' || p.type === 'custom_tool_call_output') && typeof p.output === 'string' && p.output.trim()) {
+        items.push({ role: 'result', ts: o.timestamp, text: clip(p.output.trim(), 600)! });
+      }
+    }
+  }
+  // agent_message events and assistant response items repeat each other: keep one
+  return finish(items.filter((x, i) => !(x.role === 'assistant' && items.slice(Math.max(0, i - 3), i).some((y) => y.role === 'assistant' && y.text === x.text))));
+}
+
 interface Job {
   id: string;
   output: string;
@@ -123,13 +211,35 @@ interface Job {
 
 type Bins = { claudeBin: string; codexBin: string };
 
+export interface JobUpdate {
+  id: string;
+  title: string;
+  state: TaskInfo['state'];
+  detail?: string;
+  cwd?: string;
+  agent?: 'claude' | 'codex';
+  sessionId?: string;
+}
+
+/** Which agent a background run (dispatch task) belongs to. */
+const agentOf = (t: TaskInfo): 'claude' | 'codex' => (t.provider === 'openai' ? 'codex' : 'claude');
+
 /** Per-run overrides; empty fields keep the CLI's own defaults. */
 export interface RunOptions {
   model?: string;
   effort?: string;
-  /** 'edits' lets the agent change files in its folder without asking */
-  permission?: 'default' | 'edits';
+  /**
+   * auto (default): Claude Code's auto mode — its safety classifier approves
+   * routine actions; whatever still needs approval is asked in VibePortal.
+   * ask: everything that needs approval is asked in VibePortal; edits: file
+   * edits are allowed, the rest is asked; default: the CLI's own settings
+   * decide and anything that would prompt is refused (headless)
+   */
+  permission?: 'auto' | 'ask' | 'edits' | 'default';
 }
+
+/** The MCP tool that routes a run's permission prompts to VibePortal. */
+export const PERMISSION_TOOL = 'mcp__vibeportal__approve';
 
 export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
@@ -146,15 +256,19 @@ export function cleanRunOptions(agent: 'claude' | 'codex', o: any): RunOptions {
     if (!(agent === 'claude' ? CLAUDE_EFFORTS : CODEX_EFFORTS).includes(o.effort)) throw httpError(400, 'invalid effort level');
     out.effort = o.effort;
   }
-  if (o?.permission === 'edits') out.permission = 'edits';
+  if (['auto', 'ask', 'edits', 'default'].includes(o?.permission)) out.permission = o.permission;
   return out;
 }
 
-function claudeRunArgs(o: RunOptions): string[] {
+/** `mcpConfig`: the per-run config file of the permission tool (when VibePortal can answer prompts). */
+function claudeRunArgs(o: RunOptions, mcpConfig?: string): string[] {
+  const perm = o.permission ?? 'auto';
   return [
     ...(o.model ? ['--model', o.model] : []),
     ...(o.effort ? ['--effort', o.effort] : []),
-    ...(o.permission === 'edits' ? ['--permission-mode', 'acceptEdits'] : []),
+    ...(perm === 'auto' ? ['--permission-mode', 'auto'] : perm === 'edits' ? ['--permission-mode', 'acceptEdits'] : []),
+    // prompts go to the VibePortal UI instead of being refused
+    ...(perm !== 'default' && mcpConfig ? ['--mcp-config', mcpConfig, '--permission-prompt-tool', PERMISSION_TOOL, '--permission-prompts', 'host'] : []),
   ];
 }
 
@@ -162,15 +276,22 @@ function codexRunArgs(o: RunOptions): string[] {
   return [
     ...(o.model ? ['-m', o.model] : []),
     ...(o.effort ? ['-c', `model_reasoning_effort="${o.effort}"`] : []),
-    ...(o.permission === 'edits' ? ['--sandbox', 'workspace-write'] : []),
+    // Codex has no prompt for headless runs: auto / edits give it its folder to work in
+    ...(o.permission === 'edits' || (o.permission ?? 'auto') === 'auto' ? ['--sandbox', 'workspace-write'] : []),
   ];
 }
 
+const newJobId = () => `dispatch-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
 export class ActionRunner {
   private jobs = new Map<string, Job>();
+  /** writes the permission tool's MCP config for a job and returns its path (set by the server once it listens) */
+  permissionConfig?: (jobId: string) => string | undefined;
+  /** a run ended (its open permission requests are void) */
+  onJobEnd?: (jobId: string) => void;
   private running = 0;
 
-  constructor(private onJobUpdate: (job: { id: string; title: string; state: TaskInfo['state']; detail?: string; cwd?: string }) => void) {}
+  constructor(private onJobUpdate: (job: JobUpdate) => void) {}
 
   jobOutput(id: string): string | undefined {
     return this.jobs.get(id)?.output;
@@ -236,20 +357,23 @@ export class ActionRunner {
    */
   continue(task: TaskInfo, sessionId: string, prompt: string, bins: Bins, run: RunOptions = {}): { jobId: string } {
     const cwd = task.cwd && fs.existsSync(task.cwd) ? task.cwd : os.homedir();
+    const jobId = newJobId();
     let bin: string | null;
     let args: string[];
-    if (task.kind === 'claude-code') {
+    if (task.kind === 'claude-code' || (task.kind === 'dispatch' && agentOf(task) === 'claude')) {
       bin = resolveBin('claude', bins.claudeBin);
-      args = ['-p', '--resume', sessionId, ...(task.alive ? ['--fork-session'] : []), ...claudeRunArgs(run)];
+      args = ['-p', '--resume', sessionId, ...(task.alive ? ['--fork-session'] : []), ...claudeRunArgs(run, this.permissionConfig?.(jobId))];
       // resuming writes to the same session; a fork gets a new id we find by pid
-    } else if (task.kind === 'codex') {
+    } else if (task.kind === 'codex' || task.kind === 'dispatch') {
       bin = resolveBin('codex', bins.codexBin);
       // `exec resume` takes -m / -c after the subcommand and has no --sandbox (the session keeps its own)
       args = ['exec', 'resume', ...codexRunArgs({ ...run, permission: undefined }), sessionId, '-'];
     } else throw httpError(400, 'This task cannot be continued');
     if (!bin) throw httpError(501, `${task.kind === 'codex' ? 'Codex' : 'Claude Code'} CLI not found`);
-    const same = task.kind === 'codex' || !task.alive ? sessionId : undefined;
-    return this.runJob(`↪ ${task.title}`, task.kind === 'codex' ? 'codex' : 'claude', bin, args, cwd, prompt, same);
+    const agent = task.kind === 'codex' || (task.kind === 'dispatch' && agentOf(task) === 'codex') ? 'codex' : 'claude';
+    const same = agent === 'codex' || !task.alive ? sessionId : undefined;
+    const title = task.title.startsWith('↪ ') || task.title.startsWith('✦ ') ? task.title : `↪ ${task.title}`;
+    return this.runJob(jobId, title, agent, bin, args, cwd, prompt, same);
   }
 
   /** Start a brand-new agent session in a folder (the "new task" dialog). */
@@ -257,27 +381,31 @@ export class ActionRunner {
     let bin: string | null;
     let args: string[];
     let sessionId: string | undefined;
+    const jobId = newJobId();
     if (req.agent === 'claude') {
       bin = resolveBin('claude', bins.claudeBin);
       // pick the session id up front, so its transcript can be followed even after the run exits
       sessionId = crypto.randomUUID();
-      args = ['-p', '--session-id', sessionId, ...claudeRunArgs(req)];
+      args = ['-p', '--session-id', sessionId, ...claudeRunArgs(req, this.permissionConfig?.(jobId))];
     } else {
       bin = resolveBin('codex', bins.codexBin);
       args = ['exec', '--skip-git-repo-check', ...codexRunArgs(req), '-'];
     }
     if (!bin) throw httpError(501, `${req.agent === 'codex' ? 'Codex' : 'Claude Code'} CLI not found`);
-    return this.runJob(`✦ ${path.basename(req.cwd)}: ${oneLine(req.prompt).slice(0, 48)}`, req.agent, bin, args, req.cwd, req.prompt, sessionId);
+    return this.runJob(jobId, `✦ ${path.basename(req.cwd)}: ${oneLine(req.prompt).slice(0, 48)}`, req.agent, bin, args, req.cwd, req.prompt, sessionId);
   }
 
-  private runJob(title: string, agent: 'claude' | 'codex', bin: string, args: string[], cwd: string, prompt: string, sessionId?: string): { jobId: string } {
+  private runJob(jobId: string, title: string, agent: 'claude' | 'codex', bin: string, args: string[], cwd: string, prompt: string, sessionId?: string): { jobId: string } {
     if (this.running >= 3) throw httpError(429, 'Too many background runs — wait for one to finish');
-    const jobId = `dispatch-${Date.now().toString(36)}`;
     const job: Job = { id: jobId, output: '', agent, cwd, startedAt: Date.now(), running: true, sessionId };
     this.jobs.set(jobId, job);
     this.running++;
-    this.onJobUpdate({ id: jobId, title, state: 'running', detail: oneLine(prompt), cwd });
-    const child = spawnCli(bin, args, { cwd, env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } });
+    this.onJobUpdate({ id: jobId, title, state: 'running', detail: oneLine(prompt), cwd, agent, sessionId });
+    // Let the CLI label the session itself (headless runs are "sdk-cli", which VS Code keeps out of
+    // its history list — the task's "Open in VS Code" opens it by id instead). Don't pass on an
+    // entrypoint inherited from the terminal VibePortal was started in.
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined, CLAUDECODE: undefined };
+    const child = spawnCli(bin, args, { cwd, env });
     job.pid = child.pid;
     // the prompt goes through stdin: no quoting issues, nothing shell-interpreted
     child.stdin?.end(prompt);
@@ -293,7 +421,8 @@ export class ActionRunner {
       this.running--;
       job.running = false;
       const last = job.output.trim().split('\n').filter(Boolean).pop();
-      this.onJobUpdate({ id: jobId, title, state: code === 0 ? 'done' : 'failed', detail: last ? oneLine(last) : `exit ${code}`, cwd });
+      this.onJobEnd?.(jobId);
+      this.onJobUpdate({ id: jobId, title, state: code === 0 ? 'done' : 'failed', detail: last ? oneLine(last) : `exit ${code}`, cwd, agent, sessionId: job.sessionId });
       // keep a handful of outputs around
       if (this.jobs.size > 20) this.jobs.delete(this.jobs.keys().next().value!);
     });

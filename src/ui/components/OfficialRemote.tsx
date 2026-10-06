@@ -17,6 +17,8 @@ export function OfficialRemoteCard({ state }: { state?: OfficialRemoteState }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
   const [pair, setPair] = useState<{ code: string; expiresAt: string } | null>(null);
+  /** a folder Claude Code hasn't trusted yet: offer to trust it, like its own prompt would */
+  const [untrusted, setUntrusted] = useState('');
   const [, tick] = useState(0);
 
   useEffect(() => {
@@ -71,10 +73,44 @@ export function OfficialRemoteCard({ state }: { state?: OfficialRemoteState }) {
                 </option>
               ))}
             </select>
-            <button className="btn primary" disabled={!cwd || running.has(cwd) || busy === 'claude'} onClick={() => void run('claude', () => api.startClaudeRemote(cwd))}>
+            <button
+              className="btn primary"
+              disabled={!cwd || running.has(cwd) || busy === 'claude'}
+              onClick={() =>
+                void run('claude', () =>
+                  api.startClaudeRemote(cwd).catch((e) => {
+                    if ((e as { code?: string }).code === 'untrusted') return setUntrusted(cwd);
+                    throw e;
+                  }),
+                )
+              }
+            >
               {t.rcStart}
             </button>
           </div>
+          {untrusted && (
+            <div className="trust-ask">
+              <p className="small">{fmt(t.trustAsk, { p: shortPath(untrusted) })}</p>
+              <div className="row">
+                <button
+                  className="btn primary"
+                  disabled={!!busy}
+                  onClick={() =>
+                    void run('claude', async () => {
+                      await api.trustClaudeFolder(untrusted);
+                      await api.startClaudeRemote(untrusted);
+                      setUntrusted('');
+                    })
+                  }
+                >
+                  {t.trustAndStart}
+                </button>
+                <button className="btn ghost" onClick={() => setUntrusted('')}>
+                  {t.cancel}
+                </button>
+              </div>
+            </div>
+          )}
           <ul className="official-list">
             {claude.map((c) => (
               <li key={c.cwd}>

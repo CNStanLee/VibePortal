@@ -16,7 +16,6 @@ new tasks from your phone, and a pixel crab that stir-fries while your commands 
 <a href="https://github.com/CNStanLee/VibePortal/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/CNStanLee/VibePortal?label=download"></a>
 <img alt="platforms" src="https://img.shields.io/badge/platforms-Ubuntu%20%7C%20Windows%20%7C%20Web-blue">
 <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-<a href="#support-the-project"><img alt="donate" src="https://img.shields.io/badge/%E2%9D%A4-donate-ff69b4"></a>
 </p>
 
 <p align="center"><img src="docs/images/pets.png" alt="One clone per running task, each with its own live progress bubble"></p>
@@ -25,15 +24,29 @@ new tasks from your phone, and a pixel crab that stir-fries while your commands 
 
 You run several agents at once. Somewhere a session is waiting for a permission, another one just finished, and the weekly limit is closer than you think. VibePortal turns all of that into something you can glance at.
 
-| | Classic desktop pets | Usage meters / CLIs | Agent dashboards | **VibePortal** |
-| --- | :---: | :---: | :---: | :---: |
-| Pet reacts to **real agent work** (what it edits, runs, reads) | — | — | — | ✅ |
-| **One clone per task**, each with live progress, plan and model | — | — | partly | ✅ |
-| Claude **and** ChatGPT plan limits, per-window resets, **run-out forecast** | — | partly | — | ✅ |
-| Start / continue tasks with model + effort, from the **phone** too | — | — | partly | ✅ |
-| Official **Remote Control** for Claude Code & Codex, one click | — | — | — | ✅ |
-| Reads data already on disk — **no extra login, no tokens spent** | ✅ | ✅ | — | ✅ |
-| Skills library, machine resources (CPU / GPU / disks), multi-machine | — | — | partly | ✅ |
+| | Tool | What it is | What VibePortal adds |
+| --- | --- | --- | --- |
+| **Desktop pets** | [Desktop Goose][goose] | A mischievous goose that roams the desktop, steals the mouse and drags in notes | Pets driven by **your agents** — what they edit, run and read — one clone per task |
+| | [Shimeji-ee][shimeji] | Configurable mascots that wander around the screen | Same: the pet reports real work, plan limits and permission requests |
+| | [BongoCat][bongo] | A cat that taps along with your keyboard and mouse | It follows the agent, not your keystrokes |
+| **Usage meters** | [ccusage][ccusage] | CLI reports of Claude Code / Codex usage from the local JSONL logs | The same local logs, plus **live plan limits** of Claude and ChatGPT, per-window resets and run-out forecasts — in a GUI and on the phone |
+| | [Claude Code Usage Monitor][ccmonitor] | Terminal monitor of Claude Code tokens and cost, with plan limits and forecasting | Codex / ChatGPT too, tasks and progress, the pet, phone access |
+| | [CodexBar][codexbar] | macOS menu-bar app with session / weekly limits and reset countdowns for Codex, Claude and more | Ubuntu, Windows and web; task progress, new tasks and instructions |
+| **Agent managers** | [Claude Squad][squad] | Terminal app running several agents side by side in tmux sessions and git worktrees | Watches the sessions you already run in VS Code or a terminal, from the desktop and the phone |
+| | [opcode][opcode] | Desktop GUI for Claude Code sessions, custom agents and a usage dashboard | Claude Code **and** Codex, both providers' plan limits, the pet, phone and remote machines |
+| | [Vibe Kanban][kanban] | Kanban board to orchestrate and review coding-agent tasks | A glanceable desk companion: live progress, limits, permission prompts and one-tap follow-ups |
+
+<sub>Descriptions from each project's own page (October 2026).</sub>
+
+[goose]: https://samperson.itch.io/desktop-goose
+[shimeji]: https://kilkakon.com/shimeji/
+[bongo]: https://github.com/ayangweb/BongoCat
+[ccusage]: https://github.com/ryoppippi/ccusage
+[ccmonitor]: https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor
+[codexbar]: https://github.com/steipete/CodexBar
+[squad]: https://github.com/smtg-ai/claude-squad
+[opcode]: https://github.com/winfunc/opcode
+[kanban]: https://github.com/BloopAI/vibe-kanban
 
 - 🦀 **A pet with a job.** The crab types on a laptop while code is edited, stir-fries while commands run, reads with glasses, sips tea while waiting — and pixel letters under it say *COOKING… / FORGING…* and which repo it's in. The bubble mirrors the agent's plan, its latest tool calls and its own words.
 - ⚡ **Limits you can trust.** The same numbers as `/usage` and `/status`, every window with its own reset time, and a warning *before* you run out.
@@ -118,6 +131,8 @@ VibePortal only reads what is already on your machine — no extra sign-in:
   - **Codex conversation in VS Code** → opens `vscode://openai.chatgpt/local/<id>` with the instruction on your clipboard (the Codex extension can't prefill); or continue the same thread in the background with `codex exec resume`;
   - Other Codex sessions → `codex exec resume <session> -`.
   - Instructions go through stdin, never a shell. Background runs appear as "Run" tasks whose output you can read. In headless mode, tools that need a permission prompt are refused (depending on your Claude Code / Codex permission settings).
+- **Permissions** — new tasks and instructions run in Claude Code's **auto** mode by default (its safety classifier approves routine actions). Whatever still needs approval pops up as **Allow / Deny** on the dashboard, in the pet's bubble and on the phone, with "always allow this tool for this run"; unanswered requests are denied after 15 minutes. Pick "Ask me" to be asked about everything. This works through Claude Code's permission-prompt tool: a tiny MCP server (`dist/mcp/permission.cjs`) that asks VibePortal over the loopback. Codex has no prompt in headless runs: auto / edit files give it its folder (`--sandbox workspace-write`).
+- **Background runs** stay listed for 7 days (also across restarts), show their whole conversation (📜 Full conversation) and can be continued. VS Code keeps headless sessions out of its history list on purpose, so each run has **Open in VS Code**, which opens the exact session by id.
 - **Why not write into the VS Code conversation directly?** Both extensions own their sessions — the Claude extension drives one `claude` process per session over its stdin, the Codex extension runs a private `codex app-server` per window — so nothing outside can write to them safely. The deep links above are the extensions' own entry points.
 - Actions on a remote machine's tasks are forwarded to the VibePortal on that machine.
 
@@ -125,7 +140,7 @@ VibePortal only reads what is already on your machine — no extra sign-in:
 
 The "Continue on your phone or the web" card at the bottom of the Tasks page:
 
-- **Claude Code**: pick a folder and click Start. VibePortal runs `claude remote-control --name <machine · folder> --no-create-session-in-dir` there and shows the claude.ai/code link and a QR code. Sessions you start from the Claude app or a browser run on this machine, in that folder. Claude Code only allows this in folders it trusts — for a new folder, run `claude` there once in a terminal and accept the trust prompt (VibePortal does not edit `~/.claude.json` for you).
+- **Claude Code**: pick a folder and click Start. VibePortal runs `claude remote-control --name <machine · folder> --no-create-session-in-dir` there and shows the claude.ai/code link and a QR code. Sessions you start from the Claude app or a browser run on this machine, in that folder. Claude Code only allows this in folders it trusts. For a folder it hasn't trusted yet, VibePortal offers **Trust this folder and start** — the same entry Claude Code's own "Do you trust the files in this folder?" prompt writes to `~/.claude.json` (trusting lets Claude Code load that folder's project settings, hooks and MCP servers, so only trust code you know).
 - **Codex**: Start runs `codex remote-control start` (the official app-server daemon; installed into `~/.codex/packages/` on first use), then "Get a pairing code" and enter it in the ChatGPT app (Codex → connect a computer). Stop runs `codex remote-control stop`.
 
 VibePortal only starts and stops the official CLIs and shows what they print; it never handles your account credentials.
@@ -292,14 +307,6 @@ test/                        unit tests (npm test)
 - `MESA-LOADER: failed to open …` — Electron's sandboxed GPU process can't load the Mesa drivers. VibePortal turns hardware acceleration off on Linux (a 2D UI doesn't need it and transparent windows are steadier without it), so these no longer appear.
 - `Failed to load module …/snap/code/…/gio-modules/…` — started from a terminal of the **Snap build of VS Code**, which passes its own GTK / GIO paths on. `npm run app` / `npm start` restore the originals.
 - `Fontconfig warning: … generated by a newer version` — the system font cache was written by a newer Fontconfig inside a Snap app; unrelated to VibePortal. `rm -rf ~/.cache/fontconfig && fc-cache -f` rebuilds it (Snap apps rebuild their own).
-
-## Support the project
-
-VibePortal is free and open source. If it saves you time, you can buy the crab a bowl of rice 🍚 — scan with your phone camera or open [revolut.me/changh3xx9](https://revolut.me/changh3xx9):
-
-<p align="center"><a href="https://revolut.me/changh3xx9"><img src="docs/images/donate-revolut.png" width="200" alt="Donate with Revolut"></a></p>
-
-Stars, issues and pull requests help just as much. Thank you!
 
 ## Credits
 
