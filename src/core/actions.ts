@@ -390,10 +390,11 @@ export class ActionRunner {
   }
 
   /** One headless question to a (small) Claude model, outside any repo, nothing persisted; the reply text. */
-  async ask(prompt: string, opts: { claudeBin: string; model: string; timeoutMs?: number }): Promise<string> {
+  async ask(prompt: string, opts: { claudeBin: string; model: string; effort?: string; timeoutMs?: number }): Promise<string> {
     const bin = resolveBin('claude', opts.claudeBin);
     if (!bin) throw httpError(501, 'Claude Code CLI not found — install it or set "claudeBin" in config.json');
-    const out = await runCapture(bin, ['-p', '--model', opts.model, '--output-format', 'json', '--no-session-persistence'], prompt, suggestDir(), opts.timeoutMs ?? 240_000);
+    const effort = opts.effort && CLAUDE_EFFORTS.includes(opts.effort) ? ['--effort', opts.effort] : [];
+    const out = await runCapture(bin, ['-p', '--model', opts.model, ...effort, '--output-format', 'json', '--no-session-persistence'], prompt, suggestDir(), opts.timeoutMs ?? 240_000);
     try {
       return JSON.parse(out).result ?? out;
     } catch {

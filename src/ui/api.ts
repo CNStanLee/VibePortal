@@ -224,7 +224,7 @@ export const api = {
   officeSave: (team: OfficeTeam) => call<OfficeTeam>('POST', 'api/office/teams', team),
   officeDelete: (id: string) => call<{ ok: boolean }>('DELETE', `api/office/teams/${encodeURIComponent(id)}`),
   /** a team for a goal, broken down by the small model (takes a minute or so) */
-  officePlan: (body: { id?: string; goal: string; budget: number; lang: string; cwd?: string; permission?: string }) => call<OfficeTeam>('POST', 'api/office/plan', body),
+  officePlan: (body: { id?: string; goal: string; budget: number; lang: string; cwd?: string; model?: string; effort?: string }) => call<OfficeTeam>('POST', 'api/office/plan', body),
   officeRun: (teamId: string) => call<OfficeRun>('POST', `api/office/teams/${encodeURIComponent(teamId)}/run`, {}),
   officeStop: (runId: string) => call<OfficeRun>('POST', `api/office/runs/${encodeURIComponent(runId)}/stop`, {}),
   launchOptions: () => call<LaunchOptions>('GET', 'api/launch/options'),

@@ -46,6 +46,7 @@ import { fmt, useT, type Dict } from '../i18n';
 import { fmtTokens, fmtUsd, relTime } from '../format';
 import { Mascot, type CrabScene, type MascotKind } from './Mascots';
 import { ClaudeMark, CodexMark } from './Brand';
+import { OfficeFlows } from './OfficeFlows';
 
 const ROLE_KEY: Record<OfficeRole, keyof Dict> = {
   lead: 'roleLead',
@@ -91,6 +92,16 @@ const fromSlider = (v: number) => {
   return b < 10 ? Math.round(b * 10) / 10 : Math.round(b);
 };
 const TEAM_KEY = 'vp.office.team';
+/** the model and reasoning effort that break a goal down into a team */
+const PLANNER_KEY = 'vp.office.planner';
+const PLANNER_DEFAULT = { model: 'sonnet', effort: '' };
+const loadPlanner = (): { model: string; effort: string } => {
+  try {
+    return { ...PLANNER_DEFAULT, ...JSON.parse(localStorage.getItem(PLANNER_KEY) ?? '{}') };
+  } catch {
+    return PLANNER_DEFAULT;
+  }
+};
 /** minutes without new tokens before a working desk says it may be stuck */
 const QUIET_MIN = 5;
 const RECENT_MS = 30 * 60_000;
@@ -131,6 +142,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   const [now, setNow] = useState(Date.now());
   const [link, setLink] = useState<{ from: string; x: number; y: number; up?: boolean } | null>(null);
   const [ghost, setGhost] = useState<{ role: OfficeRole; x: number; y: number } | null>(null);
+  const [planner, setPlanner] = useState(loadPlanner);
   const planeRef = useRef<HTMLDivElement>(null);
   const floorRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -354,7 +366,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     setBusy('plan');
     setError('');
     try {
-      const next = await api.officePlan({ id: team.id, goal: team.goal, budget: team.budget, lang, cwd: team.cwd });
+      const next = await api.officePlan({ id: team.id, goal: team.goal, budget: team.budget, lang, cwd: team.cwd, model: planner.model, ...(planner.effort ? { effort: planner.effort } : {}) });
       teamRef.current = next;
       setView((v) => ({ runs: v?.runs ?? [], teams: [...(v?.teams ?? []).filter((x) => x.id !== next.id), next] }));
       setDraft(null);
@@ -500,8 +512,47 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                   <>✨ {t.officePlan}</>
                 )}
               </button>
-              <span className="muted tiny">{t.officePlanHelp}</span>
+              <span className="office-planner" title={t.officePlannerHelp}>
+                <label>
+                  <span className="nt-label">{t.officePlanner}</span>
+                  <select
+                    value={planner.model}
+                    disabled={locked || !!busy}
+                    onChange={(e) => {
+                      const next = { ...planner, model: e.target.value };
+                      setPlanner(next);
+                      localStorage.setItem(PLANNER_KEY, JSON.stringify(next));
+                    }}
+                  >
+                    {[...new Set([planner.model, ...(opts?.agents.claude.models?.length ? opts.agents.claude.models : ['fable', 'opus', 'sonnet', 'haiku'])])].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="nt-label">{t.officePlannerEffort}</span>
+                  <select
+                    value={planner.effort}
+                    disabled={locked || !!busy}
+                    onChange={(e) => {
+                      const next = { ...planner, effort: e.target.value };
+                      setPlanner(next);
+                      localStorage.setItem(PLANNER_KEY, JSON.stringify(next));
+                    }}
+                  >
+                    <option value="">{t.byDefault}</option>
+                    {(opts?.agents.claude.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max']).map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </span>
             </div>
+            <p className="muted tiny office-plan-help">{fmt(t.officePlanHelp, { model: planner.model, effort: planner.effort || t.byDefault })}</p>
           </div>
           <div className="office-fields">
             <label>
@@ -828,6 +879,16 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
         </aside>
       </div>
 
+      <OfficeFlows
+        nodes={nodes}
+        progress={progress}
+        selected={selected}
+        onPick={(id) => {
+          setSelected(id);
+          setEdge(null);
+        }}
+      />
+
       {ghost && (
         <div className="office-ghost" style={{ left: ghost.x, top: ghost.y }} aria-hidden>
           <span>{ROLE_ICON[ghost.role]}</span> {t[ROLE_KEY[ghost.role]]}
@@ -1133,6 +1194,28 @@ function NodeEditor({
           <span className="nt-label">{t.officeTask}</span>
           <textarea rows={5} value={node.task} placeholder={t.officeTaskPh} onChange={(e) => onChange({ task: e.target.value })} />
         </label>
+        <label>
+          <span className="nt-label">
+            📦 {t.officeDeliverable} → {nodes.find((n) => n.id === node.parent)?.name ?? t.officeYou}
+          </span>
+          <input value={node.deliverable ?? ''} placeholder={t.officeDeliverablePh} onChange={(e) => onChange({ deliverable: e.target.value || undefined })} />
+        </label>
+        <label>
+          <span className="nt-label">✅ {t.officeCriteria}</span>
+          <CriteriaInput value={node.criteria ?? []} onChange={(criteria) => onChange({ criteria: criteria.length ? criteria : undefined })} />
+        </label>
+        {nodes.some((n) => n.parent === node.id) && (
+          <div>
+            <span className="nt-label">{t.officeReceives}</span>
+            <ul className="office-receives tiny">
+              {childrenOf(nodes, node.id).map((k) => (
+                <li key={k.id}>
+                  {ROLE_ICON[k.role]} <b>{k.name}</b>: <span className={k.deliverable ? '' : 'muted'}>{k.deliverable || t.officeNoDeliverable}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </fieldset>
       <div className="office-est small">
         {t.officeEstimate} <b>≈ {fmtUsd(est?.cost ?? 0)}</b> <span className="muted">· {fmt(t.officeTokens, { n: fmtTokens(est?.tokens ?? 0) })}</span>
@@ -1190,6 +1273,28 @@ function NodeEditor({
         </div>
       )}
     </div>
+  );
+}
+
+/** Success criteria, one per line (kept as typed while editing, so blank lines can be added). */
+function CriteriaInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const { t } = useT();
+  const [text, setText] = useState(value.join('\n'));
+  const joined = value.join('\n');
+  // another desk picked, or the planner replaced it
+  useEffect(() => {
+    if (text.split('\n').map((x) => x.trim()).filter(Boolean).join('\n') !== joined) setText(joined);
+  }, [joined]);
+  return (
+    <textarea
+      rows={3}
+      value={text}
+      placeholder={t.officeCriteriaPh}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(e.target.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 6));
+      }}
+    />
   );
 }
 

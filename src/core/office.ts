@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { OFFICE_GRANTS, OFFICE_ROLES, ROLE_GRANTS, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
+import { OFFICE_GRANTS, OFFICE_ROLES, ROLE_GRANTS, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
 import type { LaunchAgent, LaunchPermission, TaskInfo } from '../shared/types';
 import { summarize, type Decision } from './permissions';
 import { dataDir } from './config';
@@ -24,6 +24,12 @@ const REVIEW_TOKENS = 12_000;
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b-\u001f]/g, ' ').slice(0, max) : '');
 const num = (v: unknown, lo: number, hi: number, dflt: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt);
 const clip = (s: string | undefined, n: number) => (s && s.length > n ? s.slice(0, n) + '…' : s);
+/** success criteria: a list (or one per line), at most 6 short ones */
+const criteriaOf = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : typeof v === 'string' ? v.split('\n') : [])
+    .map((c) => str(c, 200).replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 6);
 
 /** A team from the UI (or the planner), with only sane values and a tree without loops. */
 export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
@@ -49,6 +55,8 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
       ...(REVIEWS.includes(n?.review) ? { review: n.review } : {}),
       ...(Number(n?.difficulty) >= 1 ? { difficulty: Math.min(5, Math.round(Number(n.difficulty))) } : {}),
       ...(str(n?.why, 200).trim() ? { why: str(n.why, 200).trim() } : {}),
+      ...(str(n?.deliverable, 300).trim() ? { deliverable: str(n.deliverable, 300).trim() } : {}),
+      ...(criteriaOf(n?.criteria).length ? { criteria: criteriaOf(n.criteria) } : {}),
       x: Math.round(num(n?.x, 0, 6000, 24)),
       y: Math.round(num(n?.y, 0, 6000, 24)),
     });
@@ -94,6 +102,7 @@ export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'e
     [
       'Break the goal down top-down into its real parts (e.g. design, implementation per component, verification, documentation / writing). One lead at the top. Give a part its own manager when it has 2 or more workers, so bigger goals become several levels: lead → managers → workers (→ sub-teams if needed). 2-14 agents, at most 4 levels.',
       'Work flows bottom-up: workers run first (in parallel), then each supervisor gets their reports and integrates / reviews. Give every agent a concrete assignment (1-3 sentences) that does not overlap with its siblings.',
+      'Design the handoffs between roles: every agent has a "deliverable" — the concrete thing it hands up to its supervisor (the lead: to the developer), e.g. "the changed files + a list of new API endpoints", "a passing test suite and its output", "a findings note with file:line references" — and 2-4 "criteria": short, checkable conditions its supervisor uses to accept the delivery (e.g. "npm test passes", "no TypeScript errors", "every new endpoint documented"). A supervisor\'s deliverable builds on its people\'s; the lead\'s criteria are the goal\'s definition of done.',
       'For every agent judge how hard its part is ("difficulty" 1-5: 1 routine edits / docs, 3 normal feature work, 5 research-level design or the hardest debugging) and choose provider, model and effort from that, from what each model is good at, and from how much weekly usage is left:',
       '- Claude fable: the strongest reasoning, for the very hardest open-ended design (expensive; has its own small weekly limit). opus: architecture, hard algorithms, integration, careful review, leading. sonnet: solid everyday implementation and review. haiku: simple edits, docs, formatting, quick checks.',
       '- Codex (GPT-5 class, leave "model" empty): strong at focused implementation, debugging, scripts, running and fixing tests, terminal work; it draws on the separate ChatGPT weekly limit.',
@@ -103,9 +112,9 @@ export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'e
       `Budget for the whole team: about $${opts.budget} at API prices. Rough cost of one agent: opus/high ≈ $2.3, sonnet/medium ≈ $0.7, haiku/medium ≈ $0.3, codex/medium ≈ $0.3. Fit the team to it.`,
       `Agents available: ${agents}. Roles: ${OFFICE_ROLES.join(' | ')}.`,
       'Permissions ("grants"): a subset of edit | run | git | web | tools (edit files, run commands, git commit/push, use the web, other tools). Least privilege: give each agent only what its assignment needs; an agent can only hold what its supervisor holds. Give git only to whoever commits / pushes (usually the lead). Agents can still ask their supervisor for more during the run.',
-      `Write names, assignments and "why" in ${opts.lang === 'zh' ? 'Simplified Chinese' : 'English'}. Names are short (a role-like nickname). "why": one short sentence on why this provider / model / effort.`,
+      `Write names, assignments, deliverables, criteria and "why" in ${opts.lang === 'zh' ? 'Simplified Chinese' : 'English'}. Names are short (a role-like nickname). "why": one short sentence on why this provider / model / effort.`,
       'Reply with ONLY this JSON, no prose, no code fences:',
-      '{"name":"team name","nodes":[{"key":"a1","parent":null,"name":"","role":"lead","difficulty":4,"agent":"claude","model":"opus","effort":"high","grants":["edit","run","git"],"task":"","why":""}]}',
+      '{"name":"team name","nodes":[{"key":"a1","parent":null,"name":"","role":"lead","difficulty":4,"agent":"claude","model":"opus","effort":"high","grants":["edit","run","git"],"task":"","deliverable":"","criteria":[""],"why":""}]}',
       '"parent" is the key of the supervisor (null for the lead).',
     ].join('\n'),
   ].join('\n\n');
@@ -305,8 +314,17 @@ export class Office {
       p.endedAt = new Date().toISOString();
       p.verb = undefined;
       p.doing = undefined;
-      p.report = clip(this.host?.report(p.taskId!) ?? job.detail, REPORT_MAX);
+      const full = this.host?.report(p.taskId!) ?? job.detail;
+      p.report = clip(full, REPORT_MAX);
       if (p.state === 'failed') p.error = clip(job.detail, 300);
+      // the checklist and the verdicts come at the end: read them from the whole report
+      const node = run.nodes.find((n) => n.id === entry[0]);
+      if (node?.criteria?.length) p.checks = parseChecks(full, node.criteria);
+      if (node && p.state === 'done')
+        for (const [id, v] of Object.entries(parseVerdicts(full, childrenOf(run.nodes, node.id)))) {
+          const kp = run.progress[id];
+          if (kp) Object.assign(kp, { accepted: v.accepted, acceptNote: v.note });
+        }
       this.pump(run);
       this.save();
       this.notify();

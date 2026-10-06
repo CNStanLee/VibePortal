@@ -40,6 +40,10 @@ export interface OfficeNode {
   difficulty?: number;
   /** why it got this provider / model (from the planner) */
   why?: string;
+  /** what it hands up to its supervisor (the lead: to the developer) */
+  deliverable?: string;
+  /** how its supervisor judges the delivery a success: short, checkable */
+  criteria?: string[];
   /** position on the floor (top-left of the desk) */
   x: number;
   y: number;
@@ -81,7 +85,15 @@ export interface OfficeRunNode {
   grants?: OfficeGrant[];
   /** permissions it asked for, newest last */
   asks?: OfficeAsk[];
+  /** its own checklist against its criteria (from its report), one per criterion */
+  checks?: OfficeCheck[];
+  /** its supervisor's verdict on the delivery (from the supervisor's report) */
+  accepted?: boolean;
+  acceptNote?: string;
 }
+
+/** A success criterion as the desk reported it: met, not met, or not said. */
+export type OfficeCheck = 'met' | 'unmet' | 'unknown';
 
 /** A desk asked for a permission it did not have; the request goes up the chain. */
 export interface OfficeAsk {
@@ -167,6 +179,7 @@ export function normalizeNodes(nodes: unknown): OfficeNode[] {
           agent: n.agent === 'codex' ? 'codex' : 'claude',
           task: typeof n.task === 'string' ? n.task : '',
           grants: Array.isArray(n.grants) ? n.grants : ROLE_GRANTS[role],
+          criteria: Array.isArray(n.criteria) ? n.criteria.filter((c) => typeof c === 'string') : undefined,
           x: Number.isFinite(n.x) ? n.x! : 24,
           y: Number.isFinite(n.y) ? n.y! : 24,
         } as OfficeNode;
@@ -209,23 +222,123 @@ export const DESK_H = 150;
 const GAP_X = 28;
 const GAP_Y = 70;
 
-/** A tidy top-down org chart: leaves side by side, each supervisor centred over its team. */
-export function autoLayout(nodes: OfficeNode[]): OfficeNode[] {
-  const pos = new Map<string, { x: number; y: number }>();
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * A tidy top-down tree: leaves side by side, each supervisor centred over its team,
+ * every level as tall as its tallest box. Positions are top-left, from (pad, pad).
+ */
+export function layoutTree(nodes: OfficeNode[], o: { w: number; h: (n: OfficeNode) => number; gapX: number; gapY: number; pad?: number }): Map<string, Box> {
+  const at = new Map<string, { x: number; depth: number }>();
   let next = 0;
   const place = (n: OfficeNode, depth: number, seen: Set<string>): number => {
     seen.add(n.id);
     const kids = childrenOf(nodes, n.id).filter((k) => !seen.has(k.id));
     const xs = kids.map((k) => place(k, depth + 1, seen));
-    const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : next++ * (DESK_W + GAP_X);
-    pos.set(n.id, { x, y: depth * (DESK_H + GAP_Y) });
+    const x = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : next++ * (o.w + o.gapX);
+    at.set(n.id, { x, depth });
     return x;
   };
   const seen = new Set<string>();
   for (const r of rootsOf(nodes)) place(r, 0, seen);
   // anything stuck in a loop goes on a row of its own
   for (const n of nodes) if (!seen.has(n.id)) place(n, 0, seen);
-  return nodes.map((n) => ({ ...n, x: Math.round(pos.get(n.id)!.x + 24), y: Math.round(pos.get(n.id)!.y + 24) }));
+  const rowH: number[] = [];
+  for (const n of nodes) {
+    const d = at.get(n.id)!.depth;
+    rowH[d] = Math.max(rowH[d] ?? 0, o.h(n));
+  }
+  const rowY: number[] = [];
+  for (let d = 0, y = o.pad ?? 24; d < rowH.length; d++) {
+    rowY[d] = y;
+    y += (rowH[d] ?? 0) + o.gapY;
+  }
+  const pad = o.pad ?? 24;
+  return new Map(nodes.map((n) => {
+    const p = at.get(n.id)!;
+    return [n.id, { x: Math.round(p.x + pad), y: Math.round(rowY[p.depth]), w: o.w, h: o.h(n) }];
+  }));
+}
+
+/** A tidy top-down org chart of the desks on the floor. */
+export function autoLayout(nodes: OfficeNode[]): OfficeNode[] {
+  const pos = layoutTree(nodes, { w: DESK_W, h: () => DESK_H, gapX: GAP_X, gapY: GAP_Y });
+  return nodes.map((n) => ({ ...n, x: pos.get(n.id)!.x, y: pos.get(n.id)!.y }));
+}
+
+// ── deliveries: what goes up each reporting line, and when it counts ───────
+/**
+ * When a desk hands its deliverable up: 1 for the people who start right away, then
+ * one more for every level of reports it waits for.
+ */
+export function stageOf(nodes: OfficeNode[], id: string, seen = new Set<string>()): number {
+  if (seen.has(id)) return 1;
+  seen.add(id);
+  const kids = childrenOf(nodes, id);
+  return kids.length ? 1 + Math.max(...kids.map((k) => stageOf(nodes, k.id, seen))) : 1;
+}
+
+/** Where a desk's delivery stands: not started, being made, handed up, then accepted or rejected by its supervisor. */
+export type OfficeDelivery = 'none' | 'waiting' | 'making' | 'delivered' | 'accepted' | 'rejected' | 'failed' | 'skipped';
+export function deliveryOf(p?: Pick<OfficeRunNode, 'state' | 'accepted'>): OfficeDelivery {
+  if (!p) return 'none';
+  if (p.accepted === true) return 'accepted';
+  if (p.accepted === false) return 'rejected';
+  return p.state === 'done' ? 'delivered' : p.state === 'running' ? 'making' : p.state;
+}
+
+const plain = (s: string) => s.toLowerCase().replace(/[*_`~"'“”‘’]/g, '').replace(/\s+/g, ' ').trim();
+const CHECK_LINE = /^\s*(?:[-*•+]\s*|\d+[.)]\s*)?\[([^\]]?)\]\s*(.+)$/;
+
+/**
+ * A desk's own checklist against its criteria, from the end of its report
+ * ("- [x] criterion" / "- [ ] criterion — why not"): by the criterion's words,
+ * else by position among the last lines of the checklist.
+ */
+export function parseChecks(report: string | undefined, criteria: string[] = []): OfficeCheck[] {
+  if (!criteria.length) return [];
+  const lines = (report ?? '')
+    .split('\n')
+    .map((l) => CHECK_LINE.exec(l))
+    .filter((m): m is RegExpExecArray => !!m)
+    .map((m) => ({ met: /[xX✓✔☑]/.test(m[1]), text: plain(m[2]) }));
+  const tail = lines.slice(-criteria.length);
+  const used = new Set<(typeof lines)[number]>();
+  return criteria.map((c, i) => {
+    const key = plain(c).slice(0, 24);
+    let hit = key ? lines.find((l) => !used.has(l) && l.text.startsWith(key)) : undefined;
+    if (!hit && tail.length === criteria.length && !used.has(tail[i])) hit = tail[i];
+    if (!hit) return 'unknown';
+    used.add(hit);
+    return hit.met ? 'met' : 'unmet';
+  });
+}
+
+const VERDICT_LINE = /^\s*(?:[-*•+]\s*)?[*_]*(ACCEPTED|REJECTED|接受|验收通过|退回|不通过)[*_]*\s*[:：]\s*(.+)$/i;
+
+/**
+ * A supervisor's verdict on each of its people's deliveries, from its report
+ * ("ACCEPTED: name" / "REJECTED: name — what is missing"); people it did not name are absent.
+ */
+export function parseVerdicts(report: string | undefined, people: Pick<OfficeNode, 'id' | 'name'>[]): Record<string, { accepted: boolean; note?: string }> {
+  const out: Record<string, { accepted: boolean; note?: string }> = {};
+  // the longest names first, so "UI lead" isn't taken for "UI"
+  const byName = [...people].sort((a, b) => b.name.length - a.name.length);
+  for (const line of (report ?? '').split('\n')) {
+    const m = VERDICT_LINE.exec(line);
+    if (!m) continue;
+    const rest = m[2].replace(/^[*_`]+/, '').trim();
+    const who = byName.find((p) => rest.toLowerCase().startsWith(p.name.toLowerCase()));
+    if (!who) continue;
+    const note = rest.slice(who.name.length).replace(/^[*_`]*\s*[—–:：,，-]*\s*/, '').trim();
+    out[who.id] = { accepted: /^(accepted|接受|验收通过)$/i.test(m[1]), ...(note ? { note: note.slice(0, 200) } : {}) };
+  }
+  return out;
 }
 
 // ── what it costs ───────────────────────────────────────────────────────────
@@ -353,22 +466,32 @@ export function nodePrompt(team: { goal: string; nodes: OfficeNode[] }, n: Offic
   const who = (m: OfficeNode) => `${m.name} (${m.role}, ${m.agent === 'codex' ? 'Codex' : 'Claude'})`;
   // the whole prompt stays well under the launcher's 20k characters
   const perReport = Math.floor(Math.min(4000, 12_000 / Math.max(1, reports.length)));
+  const crit = (n.criteria ?? []).map((c) => c.trim()).filter(Boolean);
+  const spec = (m: OfficeNode) =>
+    [m.deliverable?.trim() && `Deliverable: ${m.deliverable.trim().slice(0, 300)}`, m.criteria?.length && `Criteria: ${m.criteria.map((c) => c.trim().slice(0, 160)).join('; ')}`]
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, Math.max(200, Math.floor(4000 / Math.max(1, reports.length))));
   return [
     `You are ${who(n)} in a team of coding agents working in this folder.`,
     team.goal.trim() ? `The team's goal:\n"""${team.goal.trim().slice(0, 3000)}"""` : '',
     ROLE_LINE[n.role],
     chain.length ? `You report to ${chain.map(who).join(', who reports to ')}. ${chain[0].name}'s assignment: "${chain[0].task.trim().slice(0, 600)}"` : 'You are at the top of the team.',
     `Your assignment:\n"""${n.task.trim() || 'Do your part toward the goal.'}"""`,
+    n.deliverable?.trim() ? `What you hand to ${chain[0]?.name ?? 'the developer'} (your deliverable): ${n.deliverable.trim().slice(0, 600)}` : '',
+    crit.length ? `It counts as delivered when:\n${crit.map((c) => `- ${c}`).join('\n')}` : '',
     n.agent === 'claude'
       ? `Your permissions: ${n.grants.length ? n.grants.map((g) => GRANT_LINE[g]).join('; ') : 'read only'}. For anything else just go ahead and try it: the request goes to ${chain.length ? `your supervisor ${chain[0].name}` : 'the developer'}, who decides. If it is refused, work around it or say so in your report.`
       : `You may ${n.grants.some((g) => g === 'edit' || g === 'run') ? 'change files in this folder and run commands' : 'only read this folder'}.`,
     reports.length
       ? `Your team members have finished. Their reports:\n\n${reports
-          .map((r) => `### ${who(r.node)} — ${r.state === 'done' ? 'done' : r.state === 'skipped' ? 'did not run' : 'FAILED'}\n${(r.report ?? '').trim().slice(0, perReport) || '(no report)'}`)
-          .join('\n\n')}\n\nBuild on their work; don't redo it.`
+          .map((r) => `### ${who(r.node)} — ${r.state === 'done' ? 'done' : r.state === 'skipped' ? 'did not run' : 'FAILED'}\n${spec(r.node) ? `${spec(r.node)}\n` : ''}${(r.report ?? '').trim().slice(0, perReport) || '(no report)'}`)
+          .join('\n\n')}\n\nBuild on their work; don't redo it. Check each delivery against its criteria (look at the files, run what proves it); fix small gaps yourself.`
       : '',
     'Others in the team work in the same folder at the same time: stay within your assignment.',
     `End with a short report for ${chain[0]?.name ?? 'the developer'}: what you did, which files changed, anything left open.`,
+    reports.length ? `In the report give your verdict on each delivery, one line per person: "ACCEPTED: <name>" or "REJECTED: <name> — what is still missing".` : '',
+    crit.length ? `Finish the report with your criteria as a checklist, in the order given: "- [x] <criterion>" when met, "- [ ] <criterion> — why not" when not.` : '',
   ]
     .filter(Boolean)
     .join('\n\n');

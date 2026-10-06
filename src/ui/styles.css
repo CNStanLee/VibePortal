@@ -6999,3 +6999,308 @@ a.btn {
     display: none;
   }
 }
+
+/* office: the planner's model and effort */
+.office-planner {
+  display: inline-flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.office-planner label {
+  display: grid;
+  gap: 2px;
+}
+.office-planner select {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+.office-plan-help {
+  margin: 6px 0 0;
+}
+.office-receives {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 2px;
+}
+
+/* office: deliveries between the roles — the handoff and acceptance diagrams */
+.office-flows {
+  margin-top: 16px;
+  padding: 12px;
+}
+.office-flows-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.office-flows-head h3 {
+  margin: 0;
+}
+.office-flows-tabs {
+  display: flex;
+  gap: 6px;
+}
+.office-flows-tabs .chip {
+  cursor: pointer;
+}
+.office-flows-tabs .chip:not(.on) {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.office-flows-empty {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.office-flows-sum {
+  margin: 6px 0;
+  font-weight: 600;
+}
+.flow-scroll {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  margin-top: 8px;
+}
+.flow-plane {
+  position: relative;
+}
+.flow-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.flow-edge path {
+  fill: none;
+  stroke: var(--dl);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.flow-edge.dlv-making path:not(.flow-tip) {
+  stroke-dasharray: 6 6;
+  animation: edge-flow 0.8s linear infinite;
+}
+.flow-edge.dlv-waiting path:not(.flow-tip),
+.flow-edge.dlv-skipped path:not(.flow-tip) {
+  stroke-dasharray: 2 6;
+}
+.dlv-none,
+.dlv-waiting,
+.dlv-skipped {
+  --dl: var(--axis);
+}
+.dlv-making {
+  --dl: var(--accent);
+}
+.dlv-delivered {
+  --dl: color-mix(in srgb, var(--good) 65%, var(--axis));
+}
+.dlv-accepted {
+  --dl: var(--good);
+}
+.dlv-rejected,
+.dlv-failed {
+  --dl: var(--critical);
+}
+.flow-you {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 650;
+}
+.flow-box,
+.accept-box {
+  --ag: var(--c-claude);
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 7px 10px;
+  border: 1.5px solid var(--border);
+  border-top: 3px solid var(--ag);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.flow-box.ag-codex,
+.accept-box.ag-codex {
+  --ag: var(--c-openai);
+}
+.flow-box.on,
+.accept-box.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.flow-box.st-running {
+  border-color: var(--accent);
+}
+.flow-box.st-failed {
+  border-color: var(--critical);
+}
+.flow-name {
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flow-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.flow-label {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--dl) 60%, var(--border));
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 11.5px;
+  line-height: 1.35;
+  max-height: 50px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.flow-stage {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--dl);
+  color: var(--surface);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.flow-label.dlv-none .flow-stage,
+.flow-label.dlv-waiting .flow-stage {
+  background: var(--muted);
+}
+.flow-deliv {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.flow-dlv {
+  flex: none;
+  font-weight: 700;
+  color: var(--dl);
+}
+.accept-box.dlv-accepted {
+  border-color: color-mix(in srgb, var(--good) 60%, var(--border));
+}
+.accept-box.dlv-rejected,
+.accept-box.dlv-failed {
+  border-color: color-mix(in srgb, var(--critical) 60%, var(--border));
+}
+.accept-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.accept-state {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 650;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--dl, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--dl, var(--muted)) 50%, transparent);
+}
+.accept-deliv,
+.crit,
+.accept-gate {
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.accept-crit {
+  display: grid;
+  gap: 3px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+.crit i {
+  display: inline-block;
+  width: 14px;
+  font-style: normal;
+  font-weight: 700;
+  text-align: center;
+}
+.crit-met i {
+  color: var(--good);
+}
+.crit-unmet i {
+  color: var(--critical);
+}
+.crit-busy i,
+.crit-unknown i {
+  color: var(--warning-ink);
+}
+.crit-pending i {
+  color: var(--muted);
+}
+.accept-gate {
+  margin-top: auto;
+  color: var(--ink-2);
+}
+.accept-gate.yes {
+  color: var(--good);
+  font-weight: 600;
+}
+.accept-gate.no {
+  color: var(--critical-ink);
+  font-weight: 600;
+}
+.office-flows-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  color: var(--ink-2);
+}
+.office-flows-legend .dlv i {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--dl, var(--muted));
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-edge.dlv-making path {
+    animation: none;
+  }
+}

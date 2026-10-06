@@ -61,3 +61,22 @@ test('queued instructions can be taken back', { skip: process.platform === 'win3
   assert.ok(!m.tasks.customTasks().some((t) => t.continuedFrom === task.id));
   assert.equal(m.tasks.customTasks().find((t) => t.id === task.id)?.state, 'done');
 });
+
+test('the team planner runs on the model and reasoning effort picked for it', { skip: process.platform === 'win32' }, async () => {
+  const { loadConfig } = await import('../src/core/config');
+  const { Monitor } = await import('../src/core/monitor');
+  // a stand-in `claude`: logs its arguments, replies with a one-desk team
+  const log = path.join(home, 'plan.log');
+  const reply = path.join(home, 'plan.json');
+  fs.writeFileSync(reply, JSON.stringify({ result: JSON.stringify({ nodes: [{ key: 'a', role: 'lead', task: 'Lead', deliverable: 'It', criteria: ['done'] }] }) }));
+  const bin = path.join(home, 'claude-plan');
+  fs.writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho "$*" >> "${log}"\ncat "${reply}"\n`, { mode: 0o755 });
+  const m = new Monitor({ ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') });
+  const team = await m.planTeam({ goal: 'Ship it', budget: 3, model: 'opus', effort: 'xhigh' });
+  assert.deepEqual(team.nodes[0].criteria, ['done']);
+  await m.planTeam({ goal: 'Ship it', budget: 3, model: 'bad model; rm', effort: 'turbo' });
+  const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+  assert.match(calls[0], /--model opus --effort xhigh/);
+  assert.match(calls[1], /--model sonnet --output-format/, 'unknown values fall back to the default');
+  assert.doesNotMatch(calls[1], /--effort/);
+});

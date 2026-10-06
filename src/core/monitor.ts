@@ -219,8 +219,11 @@ export class Monitor extends EventEmitter {
     const c = this.cfg;
     const rates = weeklyRates(this.snapshot?.providers ?? []);
     const prompt = planPrompt(goal, { budget, lang, rates, claude: !!resolveBin('claude', c.claudeBin), codex: !!resolveBin('codex', c.codexBin) });
-    // weighing difficulty, strengths and weekly room is judgment: a mid-size model, not the small one
-    const team = parsePlan(await this.actions.ask(prompt, { claudeBin: c.claudeBin, model: PLAN_MODEL, timeoutMs: 300_000 }), goal, budget);
+    // weighing difficulty, strengths and weekly room is judgment: a mid-size model by default, or the one picked
+    const model = typeof body?.model === 'string' && /^[\w.:/\-[\]]{1,100}$/.test(body.model) ? body.model : PLAN_MODEL;
+    const effort = CLAUDE_EFFORTS.includes(body?.effort) ? (body.effort as string) : undefined;
+    const slow = effort === 'xhigh' || effort === 'max' || /fable|opus/.test(model);
+    const team = parsePlan(await this.actions.ask(prompt, { claudeBin: c.claudeBin, model, effort, timeoutMs: slow ? 600_000 : 300_000 }), goal, budget);
     return this.office.saveTeam({ ...team, ...(typeof body?.id === 'string' ? { id: body.id } : {}), cwd: body?.cwd });
   }
 

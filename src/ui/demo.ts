@@ -619,6 +619,25 @@ function demoTeam(goal?: string, id = 'demo-team'): OfficeTeam {
   ];
   // the styles engineer starts without "run commands": it will ask for it
   nodes[2].grants = ['edit'];
+  // what each desk hands up, and what it is accepted by
+  const handoffs: Record<string, [string, string[]]> = zh
+    ? {
+        lead: ['可合并的深色模式改动 + 变更说明', ['设置页可切换深色 / 浅色', '全部测试通过', '更新日志已写']],
+        ui: ['合并好的界面改动和复查记录', ['深色下无低对比度文字', '刷新后主题保持']],
+        css: ['深色主题 CSS 变量和切换按钮', ['所有颜色走变量', '切换无闪烁']],
+        state: ['主题偏好的读写模块', ['存入 localStorage', '启动时先读取再渲染']],
+        test: ['主题切换测试及运行结果', ['新增测试覆盖切换和持久化', 'npm test 通过']],
+        docs: ['README 段落 + 更新日志条目', ['写明如何切换主题']],
+      }
+    : {
+        lead: ['A mergeable dark mode change + summary', ['Settings switches dark / light', 'All tests pass', 'Changelog entry written']],
+        ui: ['The merged UI change and a review note', ['No low-contrast text in dark', 'Theme survives a reload']],
+        css: ['Dark theme CSS variables and the toggle', ['Every colour uses a variable', 'No flash when switching']],
+        state: ['The theme preference module', ['Stored in localStorage', 'Read before the first render']],
+        test: ['Theme toggle tests and their run', ['New tests cover toggle and persistence', 'npm test passes']],
+        docs: ['README section + changelog entry', ['Says how to switch the theme']],
+      };
+  for (const x of nodes) [x.deliverable, x.criteria] = handoffs[x.id] ?? [undefined, undefined];
   return { id, name: zh ? '深色模式小组' : 'Dark mode squad', goal: goal ?? (zh ? '给设置页加上深色模式，附带测试和更新日志' : 'Add dark mode to the settings page, with tests and a changelog entry'), budget: 6, cwd: '/home/you/code/vibeportal', nodes: cascadeGrants(autoLayout(nodes)), updatedAt: new Date().toISOString() };
 }
 let demoOffice: OfficeView | undefined;
@@ -666,8 +685,15 @@ function demoAdvance(run: OfficeRun, now = Date.now()) {
         verb: undefined,
         doing: undefined,
         tokens: total,
-        report: zh ? `${n.name}：已完成「${n.task}」。改动了 2 个文件，测试通过，没有遗留问题。` : `${n.name}: done — ${n.task} Two files changed, tests pass, nothing left open.`,
+        report: [
+          zh ? `${n.name}：已完成「${n.task}」。改动了 2 个文件，测试通过，没有遗留问题。` : `${n.name}: done — ${n.task} Two files changed, tests pass, nothing left open.`,
+          ...childrenOf(run.nodes, n.id).map((k) => `ACCEPTED: ${k.name}`),
+          ...(n.criteria ?? []).map((c) => `- [x] ${c}`),
+        ].join('\n'),
+        checks: (n.criteria ?? []).map(() => 'met'),
       });
+    // its supervisor accepts the delivery once the supervisor is done too
+    if (n.parent && times.get(n.parent) && now >= times.get(n.parent)![1]) Object.assign(p, { accepted: true });
     // the styles engineer asks its manager to run the dev server halfway through, and gets it
     if (n.id === 'css' && now > a + (b - a) * 0.3) {
       const decided = now > a + (b - a) * 0.65;

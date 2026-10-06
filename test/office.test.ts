@@ -7,7 +7,7 @@ import path from 'node:path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-office-'));
 process.env.VIBEPORTAL_HOME = home;
 
-import { assignModels, autoLayout, cascadeGrants, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeNode } from '../src/shared/office';
+import { assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeNode } from '../src/shared/office';
 import { Office, cleanTeam, parsePlan, parseReview, planPrompt, reviewPrompt, type OfficeHost } from '../src/core/office';
 import type { TaskInfo } from '../src/shared/types';
 
@@ -115,7 +115,7 @@ test('office: layout keeps a loop from hanging it', () => {
 let jobSeq = 0;
 
 /** A host that records what it was asked to start and lets the test finish runs. */
-function fakeHost(opts: { limit?: number; verdict?: string } = {}) {
+function fakeHost(opts: { limit?: number; verdict?: string; report?: (taskId: string) => string | undefined } = {}) {
   const started: { jobId: string; prompt: string; agent: string }[] = [];
   const running = new Set<string>();
   let office: Office;
@@ -135,7 +135,7 @@ function fakeHost(opts: { limit?: number; verdict?: string } = {}) {
     stop(jobId) {
       host.stopped.push(jobId);
     },
-    report: (taskId) => `report of ${taskId}`,
+    report: (taskId) => opts.report?.(taskId) ?? `report of ${taskId}`,
     judged: [] as { prompt: string; model: string }[],
     async judge(prompt, model) {
       host.judged.push({ prompt, model });
@@ -365,4 +365,99 @@ test('office: models by difficulty, strengths and weekly room; effort sliders', 
   const up = shiftEfforts([node('p', undefined, { effort: 'medium' }), codex], 2);
   assert.deepEqual(up.map((n) => n.effort), ['xhigh', 'high']);
   assert.equal(teamEffort(up), (4 + 3) / 2);
+});
+
+test('office: deliverables and criteria — kept clean, planned, and told to each desk', () => {
+  const team = cleanTeam({
+    nodes: [
+      { id: 'a', role: 'lead', deliverable: '  The release  ', criteria: ['- tests pass', '', '2. docs updated', 'c', 'd', 'e', 'f', 'g'] },
+      { id: 'b', parent: 'a', deliverable: 42, criteria: '* API done\n\n• typed' },
+    ],
+  });
+  assert.equal(team.nodes[0].deliverable, 'The release');
+  assert.deepEqual(team.nodes[0].criteria, ['tests pass', 'docs updated', 'c', 'd', 'e', 'f'], 'bullets dropped, at most 6');
+  assert.equal(team.nodes[1].deliverable, undefined);
+  assert.deepEqual(team.nodes[1].criteria, ['API done', 'typed'], 'one per line');
+
+  const prompt = planPrompt('Ship it', { budget: 5, lang: 'en', claude: true, codex: true });
+  assert.match(prompt, /"deliverable"/);
+  assert.match(prompt, /"criteria"/);
+  const planned = parsePlan(
+    JSON.stringify({ nodes: [{ key: 'a', role: 'lead', task: 'Lead', deliverable: 'A merged PR', criteria: ['CI green'] }, { key: 'b', parent: 'a', task: 'Code', deliverable: 'The diff', criteria: ['compiles', 'tested'] }] }),
+    'Ship it',
+    5,
+  );
+  assert.equal(planned.nodes[1].deliverable, 'The diff');
+  assert.deepEqual(planned.nodes[1].criteria, ['compiles', 'tested']);
+
+  const nodes = [node('lead', undefined, { role: 'lead', deliverable: 'The release', criteria: ['all green'] }), node('a', 'lead', { deliverable: 'The API', criteria: ['endpoints documented', 'tests pass'] })];
+  const leaf = nodePrompt({ goal: 'G', nodes }, nodes[1], []);
+  assert.match(leaf, /What you hand to LEAD \(your deliverable\): The API/);
+  assert.match(leaf, /- endpoints documented\n- tests pass/);
+  assert.match(leaf, /- \[x\] <criterion>/);
+  assert.doesNotMatch(leaf, /ACCEPTED/, 'nobody reports to it');
+  const top = nodePrompt({ goal: 'G', nodes }, nodes[0], [{ node: nodes[1], state: 'done', report: 'done' }]);
+  assert.match(top, /hand to the developer/);
+  assert.match(top, /Deliverable: The API\nCriteria: endpoints documented; tests pass\ndone/);
+  assert.match(top, /"ACCEPTED: <name>" or "REJECTED: <name>/);
+  const bare = nodePrompt({ goal: 'G', nodes: [node('x')] }, node('x'), []);
+  assert.doesNotMatch(bare, /deliverable|checklist/, 'nothing about it when none is set');
+});
+
+test('office: a report’s checklist and its supervisor’s verdicts', () => {
+  const crit = ['Tests pass', 'Docs **updated**', 'No lint errors'];
+  const report = 'Did it.\n- [x] a task-list item from the work\n\nChecklist:\n- [x] tests pass (42 of 42)\n- [ ] docs updated — no time\n* [X] No lint errors';
+  assert.deepEqual(parseChecks(report, crit), ['met', 'unmet', 'met'], 'by the criterion’s words');
+  assert.deepEqual(parseChecks('[x] one\n[ ] two\n[x] three', crit), ['met', 'unmet', 'met'], 'else by position among the last lines');
+  assert.deepEqual(parseChecks('no checklist', crit), ['unknown', 'unknown', 'unknown']);
+  assert.deepEqual(parseChecks('[x] tests pass', crit), ['met', 'unknown', 'unknown']);
+  assert.deepEqual(parseChecks('anything', []), []);
+
+  const people = [
+    { id: 'u', name: 'UI' },
+    { id: 'l', name: 'UI lead' },
+    { id: 'z', name: '测试员' },
+  ];
+  const v = parseVerdicts('Summary\nACCEPTED: UI lead — solid\n- **REJECTED**: UI: contrast still low\n接受：测试员\nACCEPTED: Nobody', people);
+  assert.deepEqual(v, { l: { accepted: true, note: 'solid' }, u: { accepted: false, note: 'contrast still low' }, z: { accepted: true } });
+  assert.deepEqual(parseVerdicts(undefined, people), {});
+});
+
+test('office: a run reads the checklist and the verdicts from the whole report', () => {
+  const office = new Office();
+  const long = 'x'.repeat(6000);
+  const { host, bind } = fakeHost({
+    report: (taskId) => {
+      const i = host.started.findIndex((s) => `dispatch:${s.jobId}` === taskId);
+      return i === 0 ? `${long}\n- [x] api works\n- [ ] typed — later` : `${long}\nREJECTED: A — types missing\n- [x] shipped`;
+    },
+  });
+  bind(office);
+  office.attach(host);
+  const team = office.saveTeam({ name: 'T', goal: 'G', budget: 50, cwd: home, nodes: [node('lead', undefined, { role: 'lead', criteria: ['shipped'] }), node('a', 'lead', { criteria: ['api works', 'typed'] })] });
+  const run = office.startRun(team.id, () => true);
+  assert.equal(deliveryOf(run.progress.a), 'making');
+  host.finish(0);
+  assert.deepEqual(run.progress.a.checks, ['met', 'unmet'], 'past the clipped part of the report');
+  assert.equal(deliveryOf(run.progress.a), 'delivered');
+  host.finish(1);
+  assert.deepEqual(run.progress.lead.checks, ['met']);
+  assert.equal(run.progress.a.accepted, false);
+  assert.equal(run.progress.a.acceptNote, 'types missing');
+  assert.equal(deliveryOf(run.progress.a), 'rejected');
+  assert.equal(deliveryOf(undefined), 'none');
+});
+
+test('office: handoff steps and a tree layout with rows as tall as their tallest box', () => {
+  const nodes = [node('lead'), node('m', 'lead'), node('w1', 'm'), node('w2', 'm'), node('t', 'lead')];
+  assert.deepEqual(nodes.map((n) => stageOf(nodes, n.id)), [3, 2, 1, 1, 1]);
+  const pos = layoutTree(nodes, { w: 100, h: (n) => (n.id === 't' ? 90 : 40), gapX: 10, gapY: 20, pad: 5 });
+  assert.equal(pos.get('lead')!.y, 5);
+  assert.equal(pos.get('m')!.y, 65);
+  assert.equal(pos.get('t')!.y, 65);
+  assert.equal(pos.get('w1')!.y, 65 + 90 + 20, 'the row below starts under the tallest box');
+  assert.equal(pos.get('m')!.x, (pos.get('w1')!.x + pos.get('w2')!.x) / 2);
+  const looped = [node('p', 'q'), node('q', 'p')];
+  assert.equal(stageOf(looped, 'p') > 0, true, 'a loop does not hang it');
+  assert.equal(autoLayout(looped).length, 2);
 });
