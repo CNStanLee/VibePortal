@@ -86,6 +86,9 @@ export class Monitor extends EventEmitter {
       // a finished run: read the tail of its transcript now rather than at the next poll
       if (job.state !== 'running') void this.tick();
     });
+    this.loadFollowUps();
+    // runs that kept going while VibePortal was down (they live in their own process group)
+    this.actions.adopt();
   }
   get config() {
     return this.cfg;
@@ -189,6 +192,7 @@ export class Monitor extends EventEmitter {
       q.prompts.push(prompt);
       q.run = { ...q.run, ...run };
       this.followUps.set(jobId, q);
+      this.saveFollowUps();
       this.poke();
       return { jobId, queued: true };
     }
@@ -196,19 +200,49 @@ export class Monitor extends EventEmitter {
     if (!sid || !task.canContinue) throw httpError(400, 'This task cannot be continued');
     const r = this.actions.continue(task, sid, prompt, { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, run);
     if (task.provider) this.dispatchProvider.set(r.jobId, task.provider);
+    // the new run carries the conversation on: a background run it resumes makes way for it (one
+    // conversation, one task), and cards / lists that showed the old task follow it
+    if (task.kind === 'dispatch') this.tasks.handOver(task.id, r.jobId);
+    else this.tasks.linkContinued(r.jobId, task.id);
+    this.poke();
     return r;
   }
 
   /** Takes back the instructions queued on a busy background run. */
   clearQueue(task: TaskInfo) {
     this.followUps.delete(task.id.replace(/^dispatch:/, ''));
+    this.saveFollowUps();
     this.poke();
+  }
+
+  // queued instructions outlive a restart, like the runs they wait for
+  private followUpsFile() {
+    return path.join(dataDir(), 'runs', 'queued.json');
+  }
+  private loadFollowUps() {
+    try {
+      const o = JSON.parse(fs.readFileSync(this.followUpsFile(), 'utf8'));
+      for (const [k, v] of Object.entries(o ?? {}) as [string, { prompts?: unknown; run?: RunOptions }][]) {
+        if (Array.isArray(v?.prompts) && v.prompts.length) this.followUps.set(k, { prompts: v.prompts.filter((x) => typeof x === 'string'), run: v.run ?? {} });
+      }
+    } catch {
+      /* nothing queued */
+    }
+  }
+  private saveFollowUps() {
+    try {
+      fs.mkdirSync(path.dirname(this.followUpsFile()), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(this.followUpsFile(), JSON.stringify(Object.fromEntries(this.followUps)), { mode: 0o600 });
+    } catch {
+      /* best effort */
+    }
   }
 
   /** A busy run finished its turn: its queued instructions go on in the same conversation, as one new run. */
   private runFollowUp(jobId: string) {
     const q = this.followUps.get(jobId)!;
     this.followUps.delete(jobId);
+    this.saveFollowUps();
     const task = this.tasks.customTasks().find((t) => t.id === `dispatch:${jobId}`);
     try {
       if (!task?.sessionId) throw new Error('its conversation could not be found');

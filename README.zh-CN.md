@@ -109,13 +109,15 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 | **用完预测** | 记录每个窗口的用量曲线，按“近 2 小时速度 / 本窗口平均速度”推算何时达到 100%，并判断是否会在重置前用完（会时发通知、宠物报警） |
 | **分析** | 各仓库（按 git 根目录归并）的 Claude / Codex Token、占比、API 等价成本、14 天趋势、最近活跃；各模型的输入 / 输出 / 缓存明细；缓存命中率、消耗速度、日均 |
 | **任务监控** | 自动发现 Claude Code 会话与 Codex 任务（运行中 / 等待你处理 / 空闲 / 完成），显示每个任务的工作负载（新 Token 速率、上下文占用、会话累计）；支持 Claude Code Hooks 即时推送；脚本可通过 HTTP 上报自定义任务 |
-| **下一步动作** | 任务完成或需要你时，宠物会问“下一步？”：查看最近回复、让 Claude 给出建议、发送新指令（在 VS Code 中打开的会话会把指令交给那个会话本身，历史保持同一份）、打开仓库 |
+| **下一步动作** | 任务完成或需要你时，宠物会问“下一步？”：查看最近回复、让 Claude 给出建议、发送新指令（在 VS Code 中打开的会话会把指令交给那个会话本身，历史保持同一份）、打开仓库。**还在忙的后台运行也能追加指令**：指令排队，当前这轮一结束就在同一个会话里接着跑；卡片会停在执行你指令的那个运行上，后台运行和排队的指令**在 VibePortal 重启后继续** |
 | **手机 / 网页继续** | 一键开启官方 Remote Control：Claude Code 为某个文件夹生成 claude.ai/code 链接和二维码；Codex 以远程控制模式启动守护进程并给出 ChatGPT App 配对码 |
 | **桌面宠物** | Claude 像素小螃蟹 + Codex 圆头终端小机器人（屏幕就是它的脸；也可换成鲸鱼娘）。脚下用像素字显示正在忙什么（COOKING… / FORGING… / CRAFTING…）和所在仓库；状态框显示当前模型与强度，可为下一条指令切换。多任务时 **分身**：每个任务一只（Claude Code → 螃蟹，Codex → 小机器人），各自显示状态、负载并可单独下指令；无任务时显示两家的限额。头顶对话框 **同步进展**：计划进度（TodoWrite / Codex update_plan）、最近的工具调用和 Agent 的话，中英双语标签，直接解析本地日志与 Hooks，不额外调用模型。小螃蟹会按正在做的事 **演小剧场**：改代码时敲电脑、跑命令时炒菜、读文件戴眼镜看书、搜索拿放大镜、等待时喝茶、闲着吃白米饭。宠物右下角三根 **彩色小条**（5 小时 / 每周 / 最紧张的其它窗口）不点开也能看个大概。拖动移动、单击展开、双击打开面板、右键菜单 |
 | **新任务** | 顶栏“＋ 新任务”或宠物旁的 ＋：选择仓库 / 本地 VS Code 项目（读取 VS Code 的最近文件夹与当前打开的窗口）、Claude Code 或 Codex、模型和强度，后台开启新会话；新任务出现时宠物**分身**登场 |
 | **技能** | 列出 VibePortal 技能库、Claude Code / Codex 的用户技能和各仓库的技能文件夹（名称和描述直接读 SKILL.md，不调用模型）；任务中写出的 SKILL.md 自动归档到 `~/.vibeportal/skills`；可手动新建 / 编辑，一键安装到 Claude Code 或 Codex，开新任务时勾选技能（指令里附上 SKILL.md 路径，由 Agent 自己读取） |
 | **资源** | 本机（或远程机器）的 CPU（每核）、内存 / 交换区、NVIDIA GPU（利用率、显存、温度、功耗、GPU 进程）、各磁盘、占用最高的进程（标出 Claude / Codex 进程），近 10 分钟趋势和自动分析；只在页面打开时采样 |
 | **远程** | 一键允许局域网 / 手机访问（显示地址和二维码）；**访问密码**（设置后链接和二维码不再含令牌，扫码后密码登录）；**公网访问**：隧道——**固定地址**用 ngrok（免费账号自带固定域名）或 Tailscale Funnel；临时地址用 localhost.run / Pinggy（走系统自带的 ssh，无需安装和账号）或 Cloudflare 快速隧道——或填写自己的公网地址，必须先设置密码；可添加其它机器上的 VibePortal（如 GPU 服务器），其任务和限额合并显示，动作也会转发过去；局域网内自动发现 |
+| **螃蟹农场** | 烧掉的 Token 换种子抽卡（50 万一抽，十连保底稀有）。**6 种品质、27 种像素植物**，从 15 分钟的雏菊到要长三天的世界树，10 种颜色，还有 0.1% 的**神话**品质和专属极光特效。种子在 3×3 田地里长成植物，进展柜和图鉴。纯观赏——见[螃蟹农场](#螃蟹农场) |
+| **农友** | 农场主页可关联 **GitHub、LinkedIn、X** 和个人网站；可选的**公开农场**链接，任何人都能来参观、帮你浇水（让植物长得更快）；**好友农场**和排行榜；**分享卡片**一键发到 LinkedIn / X / 手机分享面板，还有实时更新的 **GitHub 主页 README 徽章** |
 | **Google 登录** | 每台设备都可“使用 Google 登录”，在本机校验；“我的设备”列出绑定到该账号的所有 VibePortal，列表存在你自己的 Google Drive |
 | **其它** | 中英双语、浅色 / 深色主题、移动端适配、托盘菜单、开机自启 |
 
@@ -145,9 +147,39 @@ VibePortal 只读取本机已有的数据，不需要额外登录：
   - 其它 Codex 会话 → `codex exec resume <session> -`。
   - 指令通过 stdin 传入，不经过 shell。后台运行会作为“Run”任务出现，完成后可查看输出。headless 模式下需要权限确认的工具会被拒绝（取决于你的 Claude Code / Codex 权限设置）。
 - **权限**——新任务和指令默认使用 Claude Code 的 **auto 模式**（由它的安全分类器放行常规操作）。仍需授权的操作会以**允许 / 拒绝**的形式出现在面板、宠物对话框和手机上，可选“本次运行一直允许该工具”；15 分钟无人回答则自动拒绝。选择“每次问我”则全部询问。这是通过 Claude Code 的 permission-prompt 工具实现的：一个小型 MCP 服务器（`dist/mcp/permission.cjs`）经本机回环地址询问 VibePortal。Codex 在后台运行时没有询问机制：选“自动”或“改文件”会给它这个文件夹的写权限（`--sandbox workspace-write`）。
-- **后台运行**会保留 7 天（重启后也在），可以查看完整对话（📜 完整对话）并继续。VS Code 有意不在历史列表里显示 headless 会话，所以每个后台运行都有**在 VS Code 中打开**，按 id 打开这个会话本身。
+- **后台运行**会保留 7 天，可以查看完整对话（📜 完整对话）并继续。VS Code 有意不在历史列表里显示 headless 会话，所以每个后台运行都有**在 VS Code 中打开**，按 id 打开这个会话本身。
+- **追加指令**——发给还在工作的后台运行的指令会排队（显示在运行下面，可以撤回），当前这轮一结束就在同一个会话里继续；多条排队指令合成一条发送。发给已结束运行的指令会作为同一个任务继续，宠物卡片 / 任务行会停在执行这条指令的运行上。
+- **重启**——后台运行在自己的进程组里，输出写到 `~/.vibeportal/runs/<id>.out`，所以 VibePortal 重启（更新、崩溃）时它们照常跑；启动时会把仍在运行的接回来（`runs/running.json`），排队的指令也一样（`runs/queued.json`）。重启期间弹出的权限请求，会在 VibePortal 回来后重新询问。
 - **为什么不直接写入 VS Code 里的会话**：两个扩展都独占自己的会话（Claude 扩展为每个会话启动一个由它的 stdin 驱动的 `claude` 进程，Codex 扩展在每个窗口内运行私有的 `codex app-server`），外部进程无法安全写入。上面的深链接是扩展官方提供的入口。
 - 远程机器上的任务，动作会转发给那台机器的 VibePortal 执行。
+
+## 螃蟹农场
+
+附带的小游戏：智能体烧掉的 Token（输入 + 输出 + 缓存写入，所有服务商合计）换种子抽卡，种子长成像素植物。种出来的东西不影响其他任何功能。
+
+| 品质 | 概率 | 生长时间 | 品种 |
+| --- | --- | --- | --- |
+| 普通 | 55% | 15–40 分钟 | 雏菊、三叶草、郁金香、蒲公英、蘑菇、胡萝卜 |
+| 优良 | 28% | 1–2 小时 | 薰衣草、大草莓、翠竹、向日葵、南瓜、仙人掌 |
+| 稀有 | 11% | 3–5 小时 | 玫瑰、睡莲、蝴蝶兰、捕蝇草、盆景松 |
+| 史诗 | 4.5% | 8–12 小时 | 水晶花、荧光菇、珊瑚树、樱花树 |
+| 传说 | 1.4% | 18–24 小时 | 蟹爪兰、凤凰木、星辰树 |
+| **神话** | **0.1%** | **2–3 天** | 月下美人、龙血树、世界树 |
+
+- 每抽 50 万 Token（开农场送三抽）；十连至少一个稀有或更好；80 抽内必出传说（神话不保底）。
+- 品质越高，越可能出稀有颜色（墨色、鎏金、虹彩）。收获时有机会升一档品质（8%；传说 → 神话只有 1%）。
+- 农场存在 `~/.vibeportal/farm.json`，手机和电脑共用一块田。
+
+### 农友：主页、好友和分享
+
+- **主页**——名字、一句话介绍，以及 GitHub（用它的头像）、LinkedIn、X 和个人网站，农场出现的地方都会显示。
+- **公开农场**（默认关闭）——给农场一个猜不到的链接 `https://<你的公网地址>/#/visit/<id>`。拿到链接的人不用登录就能看到你的主页、最好的植物和田地（本机其他信息一概不公开），还能**浇水**：每株在长的植物提前 20 分钟成熟，每位访客每天一次，每天最多 30 次。“换新链接”会让旧链接失效。需要一个别人能访问的地址（设置 → 远程 → 从互联网访问），否则链接只在你的网络里能打开。
+- **好友**——粘贴好友的农场链接，你的 VibePortal 会从他们的机器读取公开卡片，并和你一起排进排行榜（普通 1、优良 2、稀有 5、史诗 12、传说 30、神话 100 分）。可以直接帮他们浇水，你的到访会出现在他们那里，并附上回访你农场的链接。
+- **分享**——分享卡片（你的植物、分数、图鉴、Token 和账号）生成 PNG：手机分享面板（LinkedIn、微信……）、下载，或在 LinkedIn / X 上预填好的帖子。公开农场后还可以复制 **GitHub 主页 README 徽章**——实时更新的农场 SVG：
+
+  ```markdown
+  [![我的螃蟹农场](https://<你的公网地址>/api/public/farm/<id>/card.svg?lang=zh)](https://<你的公网地址>/#/visit/<id>)
+  ```
 
 ## 在手机 / 网页上继续（官方 Remote Control）
 
@@ -222,7 +254,7 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 
 ## HTTP API
 
-除 `/api/health` 外，所有接口都需要 `Authorization: Bearer <token>`（或 `?token=`，仅用于 EventSource）。
+除 `/api/health`、登录接口和公开农场的 `/api/public/farm/…` 外，所有接口都需要 `Authorization: Bearer <token>`（或 `?token=`，仅用于 EventSource）。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -252,6 +284,15 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 | POST | `/api/login` | 密码登录 `{password}` → 会话令牌（无需令牌） |
 | POST | `/api/login/google` | Google 登录 `{credential}`（ID token）→ 会话令牌 |
 | POST | `/api/google/bind` | 把已登录的 Google 账号绑定到本机（仅本机） |
+| GET | `/api/farm` | 农场（累计 Token、抽数、种子、田地、展柜） |
+| POST | `/api/farm/draw\|plant\|harvest\|uproot\|discard` | 农场操作 `{count}` / `{plot, seedId}` / `{plot}` / `{cropId}` |
+| GET / POST | `/api/farm/social` | 主页资料和公开开关 `{profile?, public?}` |
+| POST | `/api/farm/social/rotate` | 换新分享链接（旧链接失效） |
+| GET / POST / DELETE | `/api/farm/friends` | 好友农场（从他们的机器读取）/ 添加 `{link}` / 移除 `{url}` |
+| POST | `/api/farm/friends/water` | 给好友浇水 `{url}` |
+| GET | `/api/public/farm/:id` | 公开农场的卡片（无需令牌；未公开时 404） |
+| POST | `/api/public/farm/:id/water` | 给公开农场浇水 `{name, github?, farm?}`（无需令牌；每位访客每天一次） |
+| GET | `/api/public/farm/:id/card.svg[?lang=zh]` | 农场卡片 SVG，用于 GitHub README（无需令牌） |
 
 ## 配置
 
@@ -284,12 +325,17 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 - Claude / Codex 的 OAuth token 只在本机读取，只发送给各自的官方接口，不会写入日志或返回给前端。
 - Admin Key 和远程机器的令牌只保存在本机配置文件（权限 0600）中，前端看不到。
 - 局域网发现只广播机器名、端口和实例 ID，不广播令牌。
+- **公开农场**只在开启时、只在它的随机 id 下开放三个免令牌接口：卡片（主页、植物、田地、累计 Token——没有任务、路径或用量明细）、浇水（按访客和地址限次）以及 SVG。好友的卡片来自别人的机器：由 VibePortal 自己去取（8 秒超时、限制大小、不跟随跳转），只保留格式正确的字段后才显示。
 
 ## 项目结构
 
 ```
 src/
   shared/types.ts            前后端共用类型
+  shared/farm.ts             螃蟹农场规则（抽卡、品种、生长、收获）
+  shared/farmArt.ts          像素植物（16×16 点阵）
+  shared/farmSocial.ts       农场主页、公开卡片、农场链接
+  shared/farmCard.ts         分享卡片 / README 徽章（SVG）
   core/                      数据采集（Node）
     collectors/claudeLocal.ts         Claude Code 会话记录 → Token 统计
     collectors/claudeSubscription.ts  Claude 计划与限额
@@ -307,6 +353,7 @@ src/
     tunnel.ts                公网隧道（localhost.run / Pinggy / Cloudflare）
     skills.ts                技能发现、自动归档、安装
     officialRemote.ts        官方 Remote Control（claude remote-control / codex remote-control）
+    farm.ts / farmSocial.ts  农场及其社交功能（~/.vibeportal/farm*.json）、好友农场
     monitor.ts               轮询调度、快照、通知、宠物心情
   server/                    HTTP + SSE 服务器，Web 模式入口 cli.ts；auth.ts 令牌 / 密码会话
   electron/                  桌面外壳：主窗口、透明宠物窗口、托盘、通知、开机自启

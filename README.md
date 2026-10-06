@@ -109,13 +109,15 @@ The builds are unsigned: Windows SmartScreen may ask you to confirm ("More info 
 | **Run-out forecast** | Records each window's usage curve and projects when it hits 100% from the last-2-hours pace / the window average, and whether that happens before the reset (notification + the pet raises the alarm) |
 | **Analysis** | Claude / Codex tokens per repository (grouped by git root), share, API-equivalent cost, 14-day trend, last activity; input / output / cache breakdown per model; cache hit rate, burn rate, daily average |
 | **Tasks** | Finds Claude Code sessions and Codex tasks automatically (running / needs you / idle / done) with their workload (new-token rate, context use, session total); Claude Code hooks push events instantly; scripts can report custom tasks over HTTP. Rows expand to show progress, plan, model and actions |
-| **What next?** | When a task finishes or needs you, the pet asks "What next?": read the last reply, let Claude suggest next steps, send a new instruction (for a conversation open in VS Code the instruction goes to that very conversation, so there's one history), open the repo |
+| **What next?** | When a task finishes or needs you, the pet asks "What next?": read the last reply, let Claude suggest next steps, send a new instruction (for a conversation open in VS Code the instruction goes to that very conversation, so there's one history), open the repo. A background run that is still busy **takes instructions too**: they queue and go on in the same conversation as soon as its turn ends. The card stays open on the run that carries your instruction, and runs (and their queue) **keep going when VibePortal restarts** |
 | **Phone / web** | One click starts the agents' official Remote Control: Claude Code gets a claude.ai/code link + QR code for a folder; Codex starts its daemon in remote-control mode and shows a pairing code for the ChatGPT app |
 | **Desktop pet** | A pixel crab for Claude Code and a round terminal robot for Codex (its screen is its face; a whale girl skin is available too). Under the pet, pixel letters hop to say what it's busy with (COOKING… / FORGING… / CRAFTING…) and in which repo; the bubble shows the current model and effort, switchable for the next instruction. **Clones** when several tasks run — one per task, each with its own state, workload and instructions — splitting off with an animation; the home pets show both providers' limits. The speech bubble **mirrors progress**: plan (TodoWrite / Codex update_plan), latest tool calls and the agent's own words, with bilingual labels, parsed from local logs and hooks — no extra model calls. The crab **acts it out**: typing on a laptop while editing code, stir-frying while commands run, reading with glasses, searching with a magnifier, sipping tea while waiting, eating rice when idle. Three **colored mini bars** (5-hour / weekly / tightest other window) give a feel for usage without opening anything. Drag to move, click to expand, double-click for the dashboard, right-click for the menu |
 | **New task** | "+ New task" in the top bar or the + next to the pet: pick a repo or local VS Code project (VS Code's recent folders and open windows), Claude Code or Codex, model and effort, optional skills — it starts a background session and a new clone appears |
 | **Skills** | Lists the VibePortal skill library, Claude Code / Codex user skills and the skill folders of your repos (name and description read straight from SKILL.md — no model calls). SKILL.md files that tasks write are archived to `~/.vibeportal/skills` automatically; add / edit by hand, install into Claude Code or Codex with one click, attach to a new task (the instruction lists the SKILL.md paths and the agent reads them) |
 | **Resources** | CPU (per core), memory / swap, NVIDIA GPU (utilization, VRAM, temperature, power, GPU processes), disks and the busiest processes (Claude / Codex marked) of this machine or a remote one, with a 10-minute trend and plain-language findings; sampled only while the page is open |
 | **Remote** | One switch for LAN / phone access (addresses + QR code); an **access password** (links and QR codes then carry no token — scan and sign in); **access from the internet** through a tunnel — a **fixed address** with ngrok (free account, static domain) or Tailscale Funnel, or a temporary one with localhost.run / Pinggy over the built-in ssh (no install, no account) or a Cloudflare quick tunnel — or your own public address, password required; merge other machines running VibePortal (e.g. GPU servers) — their tasks and limits show up here and actions are forwarded; LAN auto-discovery |
+| **Crab farm** | The tokens you burn buy seed draws (500K a draw, ten-draw with a guaranteed rare). **27 pixel species in six qualities**, from 15-minute daisies to three-day world trees, ten colors, and a **mythic** tier at 0.1% with its own aurora. Plants grow on a 3×3 field into a showcase and a collection. Decoration only — see [Crab farm](#crab-farm) |
+| **Farmers** | A farmer profile with your **GitHub, LinkedIn, X** and website; an opt-in **public farm** link anyone can visit and water (it speeds your plants up); **friends' farms** with a leaderboard; a **share card** for LinkedIn / X / the phone's share sheet and a live **GitHub profile README badge** |
 | **Google sign-in** | "Sign in with Google" on every device, verified locally; "Your devices" lists all VibePortals bound to the account, kept in your own Google Drive |
 | **Also** | English / Chinese, light / dark theme, phone layout with a bottom tab bar, tray menu, launch at login |
 
@@ -145,9 +147,39 @@ VibePortal only reads what is already on your machine — no extra sign-in:
   - Other Codex sessions → `codex exec resume <session> -`.
   - Instructions go through stdin, never a shell. Background runs appear as "Run" tasks whose output you can read. In headless mode, tools that need a permission prompt are refused (depending on your Claude Code / Codex permission settings).
 - **Permissions** — new tasks and instructions run in Claude Code's **auto** mode by default (its safety classifier approves routine actions). Whatever still needs approval pops up as **Allow / Deny** on the dashboard, in the pet's bubble and on the phone, with "always allow this tool for this run"; unanswered requests are denied after 15 minutes. Pick "Ask me" to be asked about everything. This works through Claude Code's permission-prompt tool: a tiny MCP server (`dist/mcp/permission.cjs`) that asks VibePortal over the loopback. Codex has no prompt in headless runs: auto / edit files give it its folder (`--sandbox workspace-write`).
-- **Background runs** stay listed for 7 days (also across restarts), show their whole conversation (📜 Full conversation) and can be continued. VS Code keeps headless sessions out of its history list on purpose, so each run has **Open in VS Code**, which opens the exact session by id.
+- **Background runs** stay listed for 7 days, show their whole conversation (📜 Full conversation) and can be continued. VS Code keeps headless sessions out of its history list on purpose, so each run has **Open in VS Code**, which opens the exact session by id.
+- **Adding to a run** — an instruction sent to a background run that is still working is queued (shown under the run, can be taken back) and goes on in the same conversation the moment the current turn ends; several queued instructions go as one. An instruction to a finished run resumes it as the same task, and the pet card / task row stays open on the run that carries it.
+- **Restarts** — runs live in their own process group and write their output to `~/.vibeportal/runs/<id>.out`, so they keep going while VibePortal restarts (an update, a crash); on start it picks the ones still running back up (`runs/running.json`), together with queued instructions (`runs/queued.json`). A permission prompt open during a restart is asked again once VibePortal is back.
 - **Why not write into the VS Code conversation directly?** Both extensions own their sessions — the Claude extension drives one `claude` process per session over its stdin, the Codex extension runs a private `codex app-server` per window — so nothing outside can write to them safely. The deep links above are the extensions' own entry points.
 - Actions on a remote machine's tasks are forwarded to the VibePortal on that machine.
+
+## Crab farm
+
+A small game on the side: the tokens your agents burn (input + output + cache writes, all providers) buy seed draws, and seeds grow into pixel plants. Nothing you grow changes anything else.
+
+| Quality | Odds | Grows in | Species |
+| --- | --- | --- | --- |
+| Common | 55% | 15–40 min | daisy, clover, tulip, dandelion, mushroom, carrot |
+| Fine | 28% | 1–2 h | lavender, strawberry, bamboo, sunflower, pumpkin, cactus |
+| Rare | 11% | 3–5 h | rose, lotus, orchid, Venus flytrap, bonsai pine |
+| Epic | 4.5% | 8–12 h | crystal bloom, glowshroom, coral tree, cherry blossom |
+| Legendary | 1.4% | 18–24 h | crab-claw cactus, phoenix flame tree, star tree |
+| **Mythic** | **0.1%** | **2–3 days** | moonflower, dragon's blood tree, world tree |
+
+- 500K tokens a draw (three on the house when the farm opens); a ten-draw always holds a rare or better; a legendary is guaranteed within 80 draws (a mythic never is).
+- Better seeds come in rarer colors (ink, gold, rainbow). A harvest sometimes comes out one quality better (8%; legendary → mythic only 1%).
+- The farm lives in `~/.vibeportal/farm.json`, so the phone and the desktop share one field.
+
+### Farmers: profiles, friends and sharing
+
+- **Profile** — a name, a line about you, and your GitHub (its avatar is used), LinkedIn, X and website, shown wherever your farm appears.
+- **Public farm** (off by default) — gives your farm an unguessable link `https://<your public address>/#/visit/<id>`. Anyone with it sees your profile, best plants and field — no sign-in, nothing else of the machine — and can **water** it: every growing plant gets 20 minutes closer to ripe, once a day per visitor, 30 waterings a day. "New link" retires the old one. It needs an address others can reach (Settings → Remote → access from the internet); otherwise the link works on your network only.
+- **Friends** — paste a friend's farm link; your VibePortal reads their public card from their machine and ranks you on a leaderboard (common 1, fine 2, rare 5, epic 12, legendary 30, mythic 100 points). Water their farm from there; your visit shows up on theirs with a link back to yours.
+- **Share** — a share card (your plants, score, collection and tokens, your handles) as a PNG: the phone's share sheet (LinkedIn, WeChat, …), a download, or a prefilled post on LinkedIn or X. With a public farm, copy a **GitHub profile README badge** — a live SVG of your farm:
+
+  ```markdown
+  [![My crab farm](https://<your public address>/api/public/farm/<id>/card.svg)](https://<your public address>/#/visit/<id>)
+  ```
 
 ## Continue on your phone or the web (official Remote Control)
 
@@ -222,7 +254,7 @@ Finished / failed tasks are cleared after an hour; tasks without updates after 2
 
 ## HTTP API
 
-Everything except `/api/health` and `/api/login` needs `Authorization: Bearer <token>` (or `?token=`, meant for EventSource).
+Everything except `/api/health`, `/api/login` and a public farm's `/api/public/farm/…` needs `Authorization: Bearer <token>` (or `?token=`, meant for EventSource).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -252,6 +284,15 @@ Everything except `/api/health` and `/api/login` needs `Authorization: Bearer <t
 | POST | `/api/login` | Password sign-in `{password}` → session token |
 | POST | `/api/login/google` | Google sign-in `{credential}` (an ID token) → session token |
 | POST | `/api/google/bind` | Bind the signed-in Google account to this machine (local only) |
+| GET | `/api/farm` | The farm (tokens earned, draws, seeds, field, showcase) |
+| POST | `/api/farm/draw\|plant\|harvest\|uproot\|discard` | Farm actions `{count}` / `{plot, seedId}` / `{plot}` / `{cropId}` |
+| GET / POST | `/api/farm/social` | Profile and public switch `{profile?, public?}` |
+| POST | `/api/farm/social/rotate` | A new share link (the old one stops working) |
+| GET / POST / DELETE | `/api/farm/friends` | Friends' farms (fetched from their machines) / add `{link}` / remove `{url}` |
+| POST | `/api/farm/friends/water` | Water a friend's farm `{url}` |
+| GET | `/api/public/farm/:id` | A public farm's card (no token; 404 unless public) |
+| POST | `/api/public/farm/:id/water` | Water a public farm `{name, github?, farm?}` (no token; once a day per visitor) |
+| GET | `/api/public/farm/:id/card.svg[?lang=zh]` | The farm's card as SVG, for a GitHub README (no token) |
 
 ## Configuration
 
@@ -284,12 +325,17 @@ Settings live in `~/.vibeportal/config.json` (mode 0600); most can be changed on
 - Claude / Codex OAuth tokens are read locally, sent only to their own official endpoints, and never logged or returned to the UI.
 - Admin keys and remote machines' tokens stay in the local config file (mode 0600); the UI never sees them.
 - LAN discovery broadcasts only the machine name, port and instance id — never a token.
+- A **public farm** opens three token-free endpoints, only while it's switched on and only under its random id: its card (profile, plants, field, tokens earned — no tasks, paths or usage details), watering (limited per visitor and per address) and its SVG. Friends' cards come from other people's machines: VibePortal fetches them itself (8 s timeout, size-capped, no redirects) and keeps only well-formed fields before anything is shown.
 
 ## Project layout
 
 ```
 src/
   shared/types.ts            types shared by server and UI
+  shared/farm.ts             the crab farm's rules (draws, species, growing, harvests)
+  shared/farmArt.ts          pixel plants (16×16 maps)
+  shared/farmSocial.ts       farmer profiles, public farm cards, farm links
+  shared/farmCard.ts         the share card / README badge (SVG)
   core/                      data collection (Node)
     collectors/claudeLocal.ts         Claude Code transcripts → tokens
     collectors/claudeSubscription.ts  Claude plan & limits
@@ -307,6 +353,7 @@ src/
     tunnel.ts                internet tunnels (localhost.run / Pinggy / Cloudflare)
     skills.ts                skill discovery, auto-archive, install
     officialRemote.ts        official Remote Control (claude / codex remote-control)
+    farm.ts / farmSocial.ts  the farm and its social side (~/.vibeportal/farm*.json), friends' farms
     monitor.ts               polling, snapshots, notices, pet moods
   server/                    HTTP + SSE server, web entry cli.ts; auth.ts tokens / password sessions
   electron/                  desktop shell: main window, transparent pet window, tray, notifications, launch at login

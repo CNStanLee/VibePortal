@@ -156,9 +156,16 @@ export class TaskTracker {
 
   /** A run that picked up where another one left off (its queued instructions): the old task goes. */
   handOver(fromTaskId: string, toJobId: string) {
-    const t = this.custom.get(toJobId);
-    if (t) this.custom.set(toJobId, { ...t, continuedFrom: fromTaskId });
+    this.linkContinued(toJobId, fromTaskId);
     this.removeCustom(fromTaskId);
+  }
+
+  /** A run that goes on from another task (e.g. a terminal session it forked): cards follow it there. */
+  linkContinued(toJobId: string, fromTaskId: string) {
+    const t = this.custom.get(toJobId);
+    if (!t) return;
+    this.custom.set(toJobId, { ...t, continuedFrom: fromTaskId });
+    this.saveRuns();
   }
 
   upsertCustom(body: any): TaskInfo | string {

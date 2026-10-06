@@ -72,9 +72,8 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
   const [floatPos, setFloatPos] = useState<{ x: number; y: number } | null>(() => loadFloatPos());
   // where a floating-pet drag has got to: moved straight on the element, committed on release
   const dragPos = useRef<{ x: number; y: number } | null>(null);
-  const drag = useRef<{ sx: number; sy: number; wx: number; wy: number; moved: boolean; ready: boolean } | null>(null);
+  const drag = useRef<{ sx: number; sy: number; wx: number; wy: number; slop: number; moved: boolean; ready: boolean } | null>(null);
   const lastClick = useRef(0);
-  const clickTimer = useRef<number | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement>(null);
   const bridge = desktop();
   const cfg = snapshot?.petConfig ?? { enabled: true, size: 140, character: 'duo' as const, codexPet: 'bot' as const };
@@ -110,8 +109,11 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     announced.current.add(stamp);
     setOpen((o) => o ?? u.key);
   }, [shown]);
+  // a run just started from a card: it may not be in the snapshot yet
+  const expected = useRef<{ key: string; until: number } | null>(null);
   useEffect(() => {
     if (!open || shown.some((u) => u.key === open)) return;
+    if (expected.current?.key === open && Date.now() < expected.current.until) return;
     // a run that went on with your queued instruction keeps its card open
     const next = shown.find((u) => u.task?.continuedFrom === open);
     setOpen(next ? next.key : null);
@@ -130,7 +132,8 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    const d = { sx: e.screenX, sy: e.screenY, wx: 0, wy: 0, moved: false, ready: false };
+    // a finger wobbles more than a mouse: a tap must not turn into a (tiny) drag
+    const d = { sx: e.screenX, sy: e.screenY, wx: 0, wy: 0, slop: e.pointerType === 'mouse' ? 4 : 12, moved: false, ready: false };
     drag.current = d;
     if (variant === 'window' && bridge) {
       void bridge.getPetPos().then(([x, y]) => Object.assign(d, { wx: x, wy: y, ready: true }));
@@ -162,7 +165,7 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     if (!d.ready) return;
     const dx = e.screenX - d.sx;
     const dy = e.screenY - d.sy;
-    if (!d.moved && Math.hypot(dx, dy) < 4) return;
+    if (!d.moved && Math.hypot(dx, dy) < d.slop) return;
     if (!d.moved) stageRef.current?.classList.add('dragging');
     d.moved = true;
     if (variant === 'window' && bridge) return bridge.setPetPos(d.wx + dx, d.wy + dy);
@@ -179,13 +182,13 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     if (d.moved) return finishMove();
     const now = Date.now();
     if (now - lastClick.current < 320) {
-      window.clearTimeout(clickTimer.current);
       lastClick.current = 0;
       (onOpenDashboard ?? bridge?.openDashboard)?.();
       return;
     }
     lastClick.current = now;
-    clickTimer.current = window.setTimeout(() => setOpen((o) => (o === key ? null : key)), 330);
+    // the card opens right away (a second click still opens the dashboard)
+    setOpen((o) => (o === key ? null : key));
   };
 
   const style: React.CSSProperties = variant === 'floating' && floatPos ? { left: floatPos.x, top: floatPos.y, right: 'auto', bottom: 'auto' } : {};
@@ -242,7 +245,13 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
         const scene = crabScene(u, shown.indexOf(u));
         return (
           <div key={u.key} className={`pet-unit ${isOpen ? 'open' : ''} ${u.attention ? 'attention' : ''} ${spawn ? 'spawn' : ''}`}>
-            <div className={`pet-bubble mood-${u.mood}`} role="status" aria-live="polite">
+            <div
+              className={`pet-bubble mood-${u.mood}`}
+              role="status"
+              aria-live="polite"
+              // the collapsed bubble opens like the pet does; inside an open one, clicks belong to its controls
+              onClick={(e) => !isOpen && !(e.target as HTMLElement).closest('button, a, input, textarea, select, form, details') && setOpen(u.key)}
+            >
               {isOpen && (
                 <button className="pet-bubble-close" onClick={() => setOpen(null)} onPointerDown={(e) => e.stopPropagation()} aria-label={t.close} title={t.close}>
                   ×
@@ -260,6 +269,12 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
                       setDismissTick((x) => x + 1);
                     }}
                     onHistory={variant === 'floating' ? () => setHistoryId(u.task!.id) : undefined}
+                    onContinued={(id) => {
+                      // the card stays open on the run that carries your instruction
+                      expected.current = { key: id, until: Date.now() + 8000 };
+                      setDismissTick((x) => x + 1);
+                      setOpen(id);
+                    }}
                   />
                 ) : (
                   <HomeBubble unit={u} snapshot={snapshot} provider={provider} open={isOpen} />
@@ -315,7 +330,21 @@ function Fold({ smooth, children }: { smooth: boolean; children: React.ReactNode
   );
 }
 
-function TaskBubble({ unit, provider, open, onClose, onHistory }: { unit: Unit; provider?: ProviderSnapshot; open: boolean; onClose: () => void; onHistory?: () => void }) {
+function TaskBubble({
+  unit,
+  provider,
+  open,
+  onClose,
+  onHistory,
+  onContinued,
+}: {
+  unit: Unit;
+  provider?: ProviderSnapshot;
+  open: boolean;
+  onClose: () => void;
+  onHistory?: () => void;
+  onContinued?: (taskId: string) => void;
+}) {
   const { t, lang } = useT();
   const task = unit.task!;
   const w = task.workload;
@@ -357,7 +386,7 @@ function TaskBubble({ unit, provider, open, onClose, onHistory }: { unit: Unit; 
       )}
       {open && (
         <>
-          <TaskActions task={task} compact onDone={onClose} onHistory={onHistory} />
+          <TaskActions task={task} compact onDone={onClose} onHistory={onHistory} onContinued={onContinued} />
           {provider && <QuotaRows quotas={provider.quotas} provider={provider} lang={lang} />}
         </>
       )}

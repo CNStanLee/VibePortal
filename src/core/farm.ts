@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ProviderSnapshot } from '../shared/types';
-import { FarmError, creditUsage, discardCrop, draw, farmView, harvest, normalizeFarm, plant, uproot, type FarmState, type FarmView } from '../shared/farm';
+import { FarmError, creditUsage, waterField, discardCrop, draw, farmView, harvest, normalizeFarm, plant, uproot, type FarmState, type FarmView } from '../shared/farm';
 import { dataDir } from './config';
 import { localDate } from './jsonl';
 
@@ -42,6 +42,13 @@ export class FarmStore {
     creditUsage(s, farmDaily(providers));
     if (JSON.stringify(s.days) !== before) this.save();
     return farmView(s);
+  }
+
+  /** Someone watered the farm through its share link. */
+  water(minutes: number): number {
+    const n = waterField(this.load(), minutes);
+    if (n) this.save();
+    return n;
   }
 
   /** draw | plant | harvest | uproot | discard */

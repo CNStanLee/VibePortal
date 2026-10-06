@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TaskInfo } from '../../shared/types';
 import { TaskActions, followTask } from './TaskActions';
 import { PermissionPrompt, TaskHistoryView } from './TaskDetail';
@@ -35,9 +35,13 @@ export function TaskList({
   const [historyId, setHistoryId] = useState<string | null>(null);
   const shown = compact ? tasks.filter((x) => x.state !== 'idle').slice(0, 6) : tasks;
   const historyTask = followTask(tasks, historyId);
-  // a run that went on with your queued instruction stays expanded
+  // a run you just started from a row: it may not be in the snapshot yet
+  const expected = useRef<{ id: string; until: number } | null>(null);
+  // a run that went on with your instruction stays expanded
   useEffect(() => {
-    if (open && !tasks.some((x) => x.id === open)) setOpen(followTask(tasks, open)?.id ?? null);
+    if (!open || tasks.some((x) => x.id === open)) return;
+    if (expected.current?.id === open && Date.now() < expected.current.until) return;
+    setOpen(followTask(tasks, open)?.id ?? null);
   }, [tasks, open]);
   if (!shown.length) return <p className="muted empty">{t.noTasks}</p>;
   return (
@@ -124,7 +128,15 @@ export function TaskList({
               {task.activity?.plan && <PlanBar plan={task.activity.plan} open />}
               {!!task.activity?.feed.length && <ActivityFeed items={task.activity.feed} max={6} />}
               {task.permissions && <PermissionPrompt items={task.permissions} />}
-              <TaskActions task={task} onDone={() => setOpen(null)} onHistory={() => setHistoryId(task.id)} />
+              <TaskActions
+                task={task}
+                onDone={() => setOpen(null)}
+                onHistory={() => setHistoryId(task.id)}
+                onContinued={(id) => {
+                  expected.current = { id, until: Date.now() + 8000 };
+                  setOpen(id);
+                }}
+              />
             </div>
           )}
         </li>

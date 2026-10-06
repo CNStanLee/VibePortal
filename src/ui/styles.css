@@ -4302,6 +4302,9 @@ html.pet-page body {
   --r-rare: #3b82f6;
   --r-epic: #a855f7;
   --r-legendary: #f59e0b;
+  --r-mythic: #ec4899;
+  /* two full cycles, so sliding it by half (background-position 0% → 100% at 200% size) loops seamlessly */
+  --aurora: linear-gradient(100deg, #ff5fa2, #ffb34d, #f7e65c, #4ee0a6, #4cc3ff, #a67bff, #ff5fa2, #ffb34d, #f7e65c, #4ee0a6, #4cc3ff, #a67bff, #ff5fa2);
   display: grid;
   gap: 14px;
 }
@@ -4310,8 +4313,28 @@ html.pet-page body {
 .farm .r-rare { --r: var(--r-rare); }
 .farm .r-epic { --r: var(--r-epic); }
 .farm .r-legendary { --r: var(--r-legendary); }
+.farm .r-mythic { --r: var(--r-mythic); }
 .farm .r-name {
   color: var(--r);
+}
+/* mythic: an aurora that slides through its colors (background-position only — no layout work) */
+.farm .r-mythic .r-name,
+.farm-odds li.r-mythic b {
+  background: var(--aurora);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: farm-aurora 4s linear infinite;
+}
+@keyframes farm-aurora {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+/* the same, for a gradient border: an opaque padding-box layer over the aurora */
+@keyframes farm-aurora-border {
+  from { background-position: 0 0, 0% 50%; }
+  to { background-position: 0 0, 100% 50%; }
 }
 .farm-hero {
   display: grid;
@@ -4490,6 +4513,21 @@ html.pet-page body {
 .plant.c-gold {
   animation: farm-sway 3.2s ease-in-out infinite, farm-shine 2.4s ease-in-out infinite;
 }
+.plot.r-mythic::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 35%;
+  background: var(--aurora);
+  background-size: 200% 100%;
+  -webkit-mask: linear-gradient(180deg, #000, transparent);
+  mask: linear-gradient(180deg, #000, transparent);
+  opacity: 0.35;
+  pointer-events: none;
+  animation: farm-aurora 5s linear infinite;
+}
+.plot.r-mythic.ripe {
+  box-shadow: inset 0 -5px 0 #6b4226, 0 0 0 2px var(--r), 0 0 18px color-mix(in srgb, var(--r) 70%, transparent), 0 0 32px color-mix(in srgb, #4cc3ff 35%, transparent);
+}
 @keyframes farm-sway {
   0%, 100% { transform: rotate(-2deg); }
   50% { transform: rotate(2deg); }
@@ -4558,6 +4596,15 @@ html.pet-page body {
 .seed-packet.r-epic {
   box-shadow: 0 0 10px color-mix(in srgb, var(--r) 55%, transparent);
 }
+.seed-packet.r-mythic {
+  border-color: transparent;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--r) 22%, var(--surface)), var(--surface)) padding-box,
+    var(--aurora) border-box;
+  background-size: 100% 100%, 200% 100%;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--r) 60%, transparent), 0 0 22px color-mix(in srgb, #4cc3ff 30%, transparent);
+  animation: farm-aurora-border 3s linear infinite;
+}
 
 /* draw / harvest reveal */
 .farm-modal {
@@ -4604,6 +4651,58 @@ html.pet-page body {
 .reveal-card.r-epic {
   box-shadow: 0 0 0 1px var(--r), 0 0 18px color-mix(in srgb, var(--r) 45%, transparent);
 }
+.reveal-card.r-mythic {
+  position: relative;
+  isolation: isolate;
+  border: 2px solid transparent;
+  padding: 6px 2px;
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--r) 32%, var(--surface)), var(--surface) 75%) padding-box,
+    var(--aurora) border-box;
+  background-size: 100% 100%, 200% 100%;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--r) 55%, transparent), 0 0 40px color-mix(in srgb, #4cc3ff 30%, transparent);
+  animation: farm-flip 0.6s var(--ease-spring) both, farm-aurora-border 3s linear infinite;
+}
+/* drawing a mythic: a flash that bursts out of the card as it flips in… */
+.reveal-card.r-mythic::before {
+  content: '';
+  position: absolute;
+  inset: -45%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fff, color-mix(in srgb, var(--r) 70%, transparent) 45%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: farm-burst 1.3s var(--ease-out) both;
+  animation-delay: inherit;
+}
+/* …then slow light rays turning behind the seed */
+.reveal-card.r-mythic::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 120%;
+  aspect-ratio: 1;
+  z-index: -1;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, #fff 70%, transparent) 0 7deg, transparent 7deg 30deg);
+  -webkit-mask: radial-gradient(closest-side, #000 25%, transparent);
+  mask: radial-gradient(closest-side, #000 25%, transparent);
+  opacity: 0.4;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: farm-rays 10s linear infinite;
+}
+@keyframes farm-burst {
+  0% { opacity: 0; transform: scale(0.2); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+@keyframes farm-rays {
+  from { transform: translate(-50%, -50%) rotate(0); }
+  to { transform: translate(-50%, -50%) rotate(1turn); }
+}
 @keyframes farm-flip {
   0% { opacity: 0; transform: perspective(400px) rotateY(90deg) scale(0.7); }
   100% { opacity: 1; transform: perspective(400px) rotateY(0) scale(1); }
@@ -4635,6 +4734,14 @@ html.pet-page body {
 .potted.r-epic .pot,
 .potted.r-legendary .pot {
   background: linear-gradient(180deg, var(--r) 0 22%, color-mix(in srgb, var(--r) 70%, #000) 22% 30%, var(--r) 30%);
+}
+.potted.r-mythic .pot {
+  background: linear-gradient(180deg, transparent 0 22%, rgba(0, 0, 0, 0.25) 22% 30%, transparent 30%), var(--aurora);
+  background-size: 100% 100%, 200% 100%;
+  animation: farm-aurora-border 4s linear infinite;
+}
+.potted.r-mythic .plant {
+  filter: drop-shadow(0 0 1.5px color-mix(in srgb, var(--r) 80%, transparent));
 }
 .showcase {
   display: grid;
@@ -4668,6 +4775,15 @@ html.pet-page body {
 .shelf:hover {
   background: color-mix(in srgb, var(--r) 12%, transparent);
 }
+.shelf.r-mythic {
+  background: radial-gradient(60% 55% at 50% 55%, color-mix(in srgb, var(--r) 20%, transparent), transparent);
+}
+.shelf.r-mythic::after {
+  background: var(--aurora);
+  background-size: 200% 100%;
+  box-shadow: 0 0 6px var(--r);
+  animation: farm-aurora 3s linear infinite;
+}
 .crop-detail {
   display: grid;
   justify-items: center;
@@ -4689,6 +4805,18 @@ html.pet-page body {
   padding: 8px 4px;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--r) 40%, var(--border));
+}
+.dex-item.r-mythic {
+  border: 2px solid transparent;
+  padding: 7px 3px;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    var(--aurora) border-box;
+  background-size: 100% 100%, 200% 100%;
+  animation: farm-aurora-border 4s linear infinite;
+}
+.dex-grow {
+  font-variant-numeric: tabular-nums;
 }
 .dex-item.unknown .plant {
   filter: brightness(0) opacity(0.25);
@@ -4727,7 +4855,358 @@ html.pet-page body {
   .farm-crab,
   .plant.sway,
   .plant.c-gold,
-  .reveal-card {
+  .reveal-card,
+  .reveal-card.r-mythic,
+  .reveal-card.r-mythic::before,
+  .reveal-card.r-mythic::after {
     animation: none;
+  }
+}
+
+/* a collapsed pet bubble opens on a click, like the pet */
+.pet-unit:not(.open) .pet-bubble {
+  cursor: pointer;
+}
+
+/* ── farm: farmers, friends, visitors ───────────────────────────────────── */
+.farm-social .card-head {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.social-me {
+  display: grid;
+  gap: 14px;
+}
+.social-profile {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.social-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+.social-form label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.social-form-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.avatar {
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--border);
+}
+.avatar.crab {
+  display: inline-grid;
+  place-items: center;
+}
+.profile-links {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.profile-links a {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  text-decoration: none;
+  font-size: 12px;
+  transition: transform 0.2s var(--ease-spring), color 0.2s ease, background 0.2s ease;
+}
+.profile-links a:hover {
+  transform: translateY(-2px);
+  color: #fff;
+  background: var(--accent);
+}
+.profile-links .li {
+  font-family: system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+.social-share {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.social-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.social-link code {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.social-card-preview {
+  max-width: 495px;
+  line-height: 0;
+  animation: rise-in 0.5s var(--ease-out);
+}
+.social-card-preview svg {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.1);
+}
+.social-readme {
+  display: grid;
+  gap: 4px;
+}
+a.btn {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.social-friends {
+  display: grid;
+  gap: 10px;
+}
+.social-add {
+  display: flex;
+  gap: 6px;
+}
+.board {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.board-row {
+  display: grid;
+  grid-template-columns: 24px auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  animation: rise-in 0.45s var(--ease-out) backwards;
+}
+.board-row.me {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.board-rank {
+  font-weight: 800;
+  font-size: 15px;
+  text-align: center;
+  color: var(--ink-2);
+}
+.board-row:nth-child(1) .board-rank {
+  color: #e0a800;
+}
+.board-row:nth-child(2) .board-rank {
+  color: #9aa3b5;
+}
+.board-row:nth-child(3) .board-rank {
+  color: #c4733b;
+}
+.board-who {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.board-who b {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.board-plants {
+  display: flex;
+  gap: 2px;
+}
+.board-plant {
+  line-height: 0;
+  border-radius: 6px;
+  padding: 1px;
+  border-bottom: 2px solid var(--r-color, transparent);
+}
+.board-plant.r-rare {
+  --r-color: #4a90f0;
+}
+.board-plant.r-epic {
+  --r-color: #9b6cf0;
+}
+.board-plant.r-legendary {
+  --r-color: #f0b429;
+}
+.board-plant.r-mythic {
+  --r-color: #ec4899;
+}
+.board-stats {
+  display: grid;
+  justify-items: end;
+  line-height: 1.2;
+}
+.board-stats b {
+  font-size: 18px;
+}
+.board-actions {
+  display: flex;
+  gap: 4px;
+}
+.visitors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.visitors li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  .social-profile {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .social-form {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+  .board-row {
+    grid-template-columns: 22px auto minmax(0, 1fr) auto;
+  }
+  .board-plants {
+    display: none;
+  }
+  .board-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+/* someone's public farm, opened from its link */
+.visit {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+  display: grid;
+  gap: 16px;
+  position: relative;
+}
+.visit > * {
+  animation: rise-in 0.55s var(--ease-out) backwards;
+}
+.visit > :nth-child(3) {
+  animation-delay: 80ms;
+}
+.visit > :nth-child(4) {
+  animation-delay: 160ms;
+}
+.visit > :nth-child(n + 5) {
+  animation-delay: 240ms;
+}
+.visit-lang {
+  justify-self: end;
+}
+.visit-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+.visit-head h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+.visit-head p {
+  margin: 0 0 6px;
+}
+.visit-stats {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.visit-stats > span {
+  display: grid;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.visit-stats b {
+  font-size: 20px;
+}
+.visit-best {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  margin-top: 8px;
+}
+.visit-best .shelf {
+  cursor: default;
+}
+.visit-field {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.visit-field .plot {
+  cursor: default;
+}
+.visit-water {
+  display: grid;
+  gap: 6px;
+  max-width: 460px;
+  margin: 0 auto;
+}
+.visit-water h3 {
+  margin: 4px 0 0;
+}
+.visit-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.visit-form input:first-child {
+  grid-column: 1 / -1;
+}
+.visit-form .btn {
+  grid-column: 1 / -1;
+}
+.visit-own {
+  text-align: center;
+}
+.visit-none {
+  text-align: center;
+}
+@media (max-width: 560px) {
+  .visit-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .visit-form {
+    grid-template-columns: 1fr;
   }
 }

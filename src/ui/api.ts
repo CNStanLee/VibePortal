@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
 import type { FarmView } from '../shared/farm';
+import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
 import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillInfo, Snapshot, TaskContext } from '../shared/types';
 
 export interface Notice {
@@ -202,6 +203,13 @@ export const api = {
   farm: () => call<FarmView>('GET', 'api/farm'),
   farmAct: <R = unknown>(action: 'draw' | 'plant' | 'harvest' | 'uproot' | 'discard', body: Record<string, unknown>) => call<{ farm: FarmView; result?: R }>('POST', `api/farm/${action}`, body),
   clearQueue: (id: string) => call<{ ok: boolean }>('DELETE', `api/tasks/${encodeURIComponent(id)}/queue`),
+  farmSocial: () => call<FarmSocialView>('GET', 'api/farm/social'),
+  farmSocialUpdate: (body: { profile?: FarmProfile; public?: boolean }) => call<FarmSocialView>('POST', 'api/farm/social', body),
+  farmSocialRotate: () => call<FarmSocialView>('POST', 'api/farm/social/rotate', {}),
+  farmFriends: () => call<FriendFarm[]>('GET', 'api/farm/friends'),
+  farmFriendAdd: (link: string) => call<FriendFarm[]>('POST', 'api/farm/friends', { link }),
+  farmFriendRemove: (url: string) => call<FriendFarm[]>('DELETE', 'api/farm/friends', { url }),
+  farmFriendWater: (url: string) => call<{ friend: FriendFarm; result: unknown }>('POST', 'api/farm/friends/water', { url }),
   launchOptions: () => call<LaunchOptions>('GET', 'api/launch/options'),
   launch: (r: LaunchRequest) => call<{ jobId: string; taskId: string }>('POST', 'api/launch', r),
   skills: (fresh = false) => call<SkillInfo[]>('GET', `api/skills${fresh ? '?fresh=1' : ''}`),

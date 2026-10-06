@@ -14,8 +14,21 @@ type Rpc = { jsonrpc: '2.0'; id?: number | string; method?: string; params?: any
 
 const send = (msg: object) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
 
+type Answer = { behavior: 'allow' | 'deny'; message?: string };
+
+/** Asks; when VibePortal is restarting (connection refused / dropped), asks again once it is back. */
+async function ask(tool: string, input: unknown): Promise<Answer> {
+  const until = Date.now() + 3 * 60_000;
+  for (;;) {
+    const a = await askOnce(tool, input);
+    if (a !== 'unreachable') return a;
+    if (Date.now() > until) return { behavior: 'deny', message: 'VibePortal is not reachable, so nobody could approve this.' };
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
 /** POST /api/permissions/request and wait (long poll) for the decision. */
-function ask(tool: string, input: unknown): Promise<{ behavior: 'allow' | 'deny'; message?: string }> {
+function askOnce(tool: string, input: unknown): Promise<Answer | 'unreachable'> {
   return new Promise((resolve) => {
     const body = JSON.stringify({ job, tool_name: tool, input });
     const req = http.request(
@@ -34,8 +47,12 @@ function ask(tool: string, input: unknown): Promise<{ behavior: 'allow' | 'deny'
         });
       },
     );
-    req.on('error', () => resolve({ behavior: 'deny', message: 'VibePortal is not reachable, so nobody could approve this.' }));
-    req.on('timeout', () => req.destroy());
+    let timedOut = false;
+    req.on('error', () => resolve(timedOut ? { behavior: 'deny', message: 'Nobody answered in time.' } : 'unreachable'));
+    req.on('timeout', () => {
+      timedOut = true;
+      req.destroy();
+    });
     req.end(body);
   });
 }

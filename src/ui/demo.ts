@@ -1,6 +1,7 @@
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
-import { GROW_MINUTES, discardCrop, draw, farmView, harvest, newFarm, plant, uproot, type FarmState } from '../shared/farm';
+import { discardCrop, draw, farmView, growMinutes, harvest, newFarm, plant, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
+import { cleanProfile, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm } from '../shared/farmSocial';
 import type {
   DailyUsage,
   LaunchOptions,
@@ -422,11 +423,27 @@ function demoFarmCall(p: string, body: unknown): unknown {
     const f = newFarm(new Date(now - 3 * 86400_000).toISOString().slice(0, 10));
     for (let d = 0; d < 3; d++) f.days[new Date(now - d * 86400_000).toISOString().slice(0, 10)] = 2_400_000 + d * 700_000;
     draw(f, 10);
-    f.seeds.slice(0, 5).forEach((s, i) => plant(f, i * 2, s.id, now - (i + 1) * GROW_MINUTES[s.rarity] * 15_000));
+    f.seeds.slice(0, 5).forEach((s, i) => plant(f, i * 2, s.id, now - (i + 1) * growMinutes(s.species) * 15_000));
     harvest(f, 0, now + 864e5);
+    // a few lucky finds on the shelf, so the showcase shows off the rarer kinds
+    f.crops.push(
+      { id: 'demo-crop-1', species: 'worldtree', rarity: 'mythic', color: 'rainbow', harvestedAt: now - 2 * 86400_000 },
+      { id: 'demo-crop-2', species: 'phoenix', rarity: 'legendary', color: 'red', harvestedAt: now - 30 * 3600_000 },
+      { id: 'demo-crop-3', species: 'cherry', rarity: 'epic', color: 'pink', harvestedAt: now - 20 * 3600_000 },
+      { id: 'demo-crop-4', species: 'lavender', rarity: 'rare', color: 'purple', mutated: true, harvestedAt: now - 9 * 3600_000 },
+    );
+    f.seeds.push({ id: 'demo-seed-mythic', species: 'moonflower', rarity: 'mythic', color: 'white' });
     demoFarm = f;
   }
   if (p === 'api/farm') return farmView(demoFarm);
+  if (p.startsWith('api/farm/social')) {
+    const b = (body ?? {}) as { profile?: FarmProfile; public?: boolean };
+    if (b.profile) demoSocial.profile = cleanProfile(b.profile);
+    if (typeof b.public === 'boolean') demoSocial.public = b.public;
+    return demoSocial;
+  }
+  if (p === 'api/farm/friends/water') return { friend: demoFriends()[0], result: { minutes: 20, plants: 2 } };
+  if (p === 'api/farm/friends') return demoFriends();
   const b = (body ?? {}) as Record<string, unknown>;
   const s = demoFarm;
   let result: unknown;
@@ -437,4 +454,60 @@ function demoFarmCall(p: string, body: unknown): unknown {
   else if (action === 'uproot') uproot(s, Number(b.plot));
   else if (action === 'discard') discardCrop(s, String(b.cropId));
   return { farm: farmView(s), result };
+}
+
+// ── the farm's social side (made-up farmers) ──
+const demoSocial: FarmSocialView = {
+  profile: { name: 'Ada', bio: 'Ships with a crab on her desk', github: 'ada-dev', linkedin: 'https://www.linkedin.com/in/ada-dev', x: 'ada_dev' },
+  public: true,
+  shareId: 'demo0farm0share0id0',
+  publicUrl: 'https://ada.example.ngrok.app/',
+  visitors: [
+    { name: 'Grace', github: 'grace-h', farm: 'https://grace.example.dev/#/visit/demo0grace0farm0id0', at: Date.now() - 40 * 60_000 },
+    { name: 'Linus', at: Date.now() - 5 * 3600_000 },
+  ],
+  friends: [
+    { url: 'https://grace.example.dev/#/visit/demo0grace0farm0id0', addedAt: Date.now() - 86400_000 },
+    { url: 'https://kenji.example.dev/#/visit/demo0kenji0farm0id0', addedAt: Date.now() - 3 * 86400_000 },
+  ],
+};
+
+function demoFriendFarm(id: string, profile: FarmProfile, crops: [string, Rarity, SeedColor][], tokens: number): PublicFarm {
+  const now = Date.now();
+  const f = newFarm('2026-09-01');
+  f.days['2026-09-01'] = tokens;
+  crops.forEach(([species, rarity, color], i) => f.crops.push({ id: `${id}-${i}`, species, rarity, color, harvestedAt: now - i * 3600_000 }));
+  f.plots[0] = { seed: { id: 's', species: 'rose', rarity: 'rare', color: 'red' }, plantedAt: now - 3600_000, readyAt: now + 2 * 3600_000 };
+  f.plots[4] = { seed: { id: 't', species: 'tulip', rarity: 'common', color: 'yellow' }, plantedAt: now - 3600_000, readyAt: now - 60_000 };
+  return publicFarm(id, profile, farmView(f, now), { waterToday: 3, visitors: [{ name: 'Ada', github: 'ada-dev', at: now - 20 * 60_000 }] });
+}
+
+function demoFriends(): FriendFarm[] {
+  return [
+    {
+      url: demoSocial.friends[0].url,
+      farm: demoFriendFarm('demo0grace0farm0id0', { name: 'Grace', bio: 'Compilers & crabs', github: 'grace-h', linkedin: 'https://www.linkedin.com/in/grace-h' }, [
+        ['dragonblood', 'mythic', 'gold'],
+        ['startree', 'legendary', 'blue'],
+        ['crystal', 'epic', 'purple'],
+        ['orchid', 'rare', 'pink'],
+        ['sunflower', 'fine', 'yellow'],
+        ['daisy', 'common', 'white'],
+      ], 1_900_000_000),
+    },
+    {
+      url: demoSocial.friends[1].url,
+      farm: demoFriendFarm('demo0kenji0farm0id0', { name: 'Kenji', github: 'kenji-k', x: 'kenji_k' }, [
+        ['bonsai', 'rare', 'blue'],
+        ['pumpkin', 'fine', 'orange'],
+        ['carrot', 'common', 'orange'],
+        ['clover', 'common', 'blue'],
+      ], 420_000_000),
+    },
+  ];
+}
+
+/** A public farm for the visit page in demo mode. */
+export function demoPublicFarm(): PublicFarm {
+  return demoFriends()[0].farm!;
 }

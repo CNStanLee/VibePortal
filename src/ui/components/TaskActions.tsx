@@ -22,6 +22,7 @@ export function TaskActions({
   hideContext = false,
   onDone,
   onHistory,
+  onContinued,
 }: {
   task: TaskInfo;
   compact?: boolean;
@@ -30,6 +31,8 @@ export function TaskActions({
   onDone?: () => void;
   /** opens the full conversation */
   onHistory?: () => void;
+  /** the instruction started a run (task id): show that one instead of closing */
+  onContinued?: (taskId: string) => void;
 }) {
   const { t, lang } = useT();
   const [ctx, setCtx] = useState<TaskContext | null>(null);
@@ -98,7 +101,8 @@ export function TaskActions({
       if (r.queued) return setMsg(t.queuedMsg);
       setMsg(away ? t.startedAway : t.started);
       dismissTask(task.id, task.finishedAt ?? task.updatedAt);
-      setTimeout(() => onDone?.(), 1200);
+      if (onContinued) onContinued(`dispatch:${r.jobId}`);
+      else setTimeout(() => onDone?.(), 1200);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {

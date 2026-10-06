@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MULTI_DRAW, RARITIES, RARITY_ODDS, SPECIES, colorsFor, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
+import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, colorsFor, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
 import { api } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
 import { Mascot } from './Mascots';
 import { PlantSprite, SeedPacket, colorSwatch } from './FarmArt';
+import { FarmSocialSection } from './FarmSocial';
 
 const RARITY_NAME: Record<Rarity, { zh: string; en: string }> = {
   common: { zh: '普通', en: 'Common' },
@@ -12,6 +13,7 @@ const RARITY_NAME: Record<Rarity, { zh: string; en: string }> = {
   rare: { zh: '稀有', en: 'Rare' },
   epic: { zh: '史诗', en: 'Epic' },
   legendary: { zh: '传说', en: 'Legendary' },
+  mythic: { zh: '神话', en: 'Mythic' },
 };
 const COLOR_NAME: Record<SeedColor, { zh: string; en: string }> = {
   red: { zh: '赤红', en: 'Red' },
@@ -30,6 +32,16 @@ type Lang = 'zh' | 'en';
 const plantName = (x: { species: string; color: SeedColor }, lang: Lang) =>
   lang === 'zh' ? `${COLOR_NAME[x.color].zh}${speciesOf(x.species).zh}` : `${COLOR_NAME[x.color].en} ${speciesOf(x.species).en}`;
 const rank = (r: Rarity) => RARITIES.indexOf(r);
+/** 55%, 4.5%, 0.1% */
+const oddsPct = (n: number) => `${+n.toFixed(2)}%`;
+/** a grow time in whole units: 25m, 1h 45m, 3d */
+function growLabel(min: number, lang: Lang): string {
+  const d = Math.floor(min / 1440);
+  const h = Math.floor((min % 1440) / 60);
+  const m = min % 60;
+  const parts = lang === 'zh' ? [d && `${d}天`, h && `${h}小时`, m && `${m}分钟`] : [d && `${d}d`, h && `${h}h`, m && `${m}m`];
+  return parts.filter(Boolean).join(lang === 'zh' ? '' : ' ');
+}
 
 /**
  * The crab farm: the tokens you burn buy seed draws, seeds grow into pixel
@@ -141,11 +153,11 @@ export function FarmPage() {
           <ul>
             {RARITIES.map((r) => (
               <li key={r} className={`r-${r}`}>
-                <b>{RARITY_NAME[r][lang]}</b> {RARITY_ODDS[r]}% · {SPECIES.filter((s) => s.rarity === r).map((s) => s[lang]).join(' / ')}
+                <b>{RARITY_NAME[r][lang]}</b> {oddsPct(RARITY_ODDS[r])} · {SPECIES.filter((s) => s.rarity === r).map((s) => s[lang]).join(' / ')}
               </li>
             ))}
           </ul>
-          <p className="muted tiny">{fmt(t.farmOddsNote, { pity: 80 - farm.pity })}</p>
+          <p className="muted tiny">{fmt(t.farmOddsNote, { pity: PITY - farm.pity })}</p>
         </details>
         {error && <p className="action-msg small">{error}</p>}
       </section>
@@ -206,6 +218,8 @@ export function FarmPage() {
         </header>
         {view === 'showcase' ? <Showcase crops={farm.crops} lang={lang} onOpen={setShown} /> : <Dex crops={farm.crops} lang={lang} />}
       </section>
+
+      <FarmSocialSection farm={farm} />
 
       {picking !== null && (
         <Modal onClose={() => setPicking(null)} label={t.farmPickSeed}>
@@ -358,6 +372,9 @@ function Dex({ crops, lang }: { crops: Crop[]; lang: Lang }) {
               <PlantSprite species={s.id} color={got[0] ?? 'white'} size={48} />
               <b className="small">{got.length ? s[lang] : '???'}</b>
               <span className="r-name tiny">{RARITY_NAME[s.rarity][lang]}</span>
+              <span className="dex-grow tiny muted" title={t.farmGrowTime}>
+                ⏱ {growLabel(s.grow, lang)}
+              </span>
               <span className="dex-colors">
                 {colors.map((c) => (
                   <i key={c} className={found.has(`${s.id}|${c}`) ? 'on' : ''} style={{ background: colorSwatch(c) }} title={COLOR_NAME[c][lang]} />

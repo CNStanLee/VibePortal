@@ -8,6 +8,8 @@ import { LoginLimiter, VIA_TUNNEL, authMode, authorized, clientIp, isLocalReques
 import { Tunnel, checkProvider } from '../core/tunnel';
 import type { ServerInfo } from '../shared/types';
 import { FarmStore } from '../core/farm';
+import { FarmSocial } from '../core/farmSocial';
+import { farmCardSvg } from '../shared/farmCard';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
 import { WebPush } from '../core/webpush';
 
@@ -48,6 +50,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const { monitor } = opts;
   const clients = new Set<http.ServerResponse>();
   const farm = new FarmStore();
+  const social = new FarmSocial(monitor.config.machineName);
   const discovery = new Discovery(monitor.config.instanceId, () => ({
     name: monitor.config.machineName,
     port: boundPort,
@@ -182,6 +185,26 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         limiter.success(ip);
         return json(res, 200, issueSession(monitor.config));
       }
+      // ── a public farm, through its share link (only when its owner made it public) ──
+      const pub = /^\/api\/public\/farm\/([a-z0-9]{16,32})(?:\/(water|card\.svg))?$/.exec(p);
+      if (pub) {
+        const view = () => farm.view(monitor.current()?.providers);
+        if (!pub[2] && req.method === 'GET') {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          const card = social.publicFor(pub[1], view);
+          return card ? json(res, 200, card) : json(res, 404, { error: 'no such farm' });
+        }
+        if (pub[2] === 'card.svg' && req.method === 'GET') {
+          const card = social.publicFor(pub[1], view);
+          if (!card) return json(res, 404, { error: 'no such farm' });
+          // for a GitHub profile README: GitHub's image proxy keeps a copy for a while
+          res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=1800', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
+          return res.end(farmCardSvg(card, url.searchParams.get('lang') === 'zh' ? 'zh' : 'en'));
+        }
+        if (pub[2] === 'water' && req.method === 'POST') {
+          return json(res, 200, social.water(pub[1], await readJson(req), clientIp(req), (m) => farm.water(m)));
+        }
+      }
       if (!authorized(req, url, monitor.config)) return json(res, 401, { error: 'unauthorized' });
 
       if (p === '/api/events' && req.method === 'GET') {
@@ -203,6 +226,24 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       if (p === '/api/farm' && req.method === 'GET') return json(res, 200, farm.view(monitor.current()?.providers));
       const fm = /^\/api\/farm\/(draw|plant|harvest|uproot|discard)$/.exec(p);
       if (fm && req.method === 'POST') return json(res, 200, farm.act(fm[1], await readJson(req), monitor.current()?.providers));
+      if (p === '/api/farm/social') {
+        if (req.method === 'POST') social.update(await readJson(req));
+        else if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
+        return json(res, 200, social.view(info(req).publicUrl));
+      }
+      if (p === '/api/farm/social/rotate' && req.method === 'POST') {
+        social.rotate();
+        return json(res, 200, social.view(info(req).publicUrl));
+      }
+      if (p === '/api/farm/friends') {
+        if (req.method === 'POST') social.addFriend(String((await readJson(req))?.link ?? ''), social.view().shareId);
+        else if (req.method === 'DELETE') social.removeFriend(String((await readJson(req))?.url ?? ''));
+        else if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
+        return json(res, 200, await social.friends());
+      }
+      if (p === '/api/farm/friends/water' && req.method === 'POST') {
+        return json(res, 200, await social.waterFriend(String((await readJson(req))?.url ?? ''), info(req).publicUrl));
+      }
       if (p === '/api/info' && req.method === 'GET') return json(res, 200, info(req));
       if (p === '/api/refresh' && req.method === 'POST') {
         await monitor.refresh();

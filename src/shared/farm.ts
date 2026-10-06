@@ -4,11 +4,10 @@
  * keeps the farm in ~/.vibeportal/farm.json) and the UI's demo mode.
  */
 
-export type Rarity = 'common' | 'fine' | 'rare' | 'epic' | 'legendary';
-export const RARITIES: Rarity[] = ['common', 'fine', 'rare', 'epic', 'legendary'];
+export type Rarity = 'common' | 'fine' | 'rare' | 'epic' | 'legendary' | 'mythic';
+export const RARITIES: Rarity[] = ['common', 'fine', 'rare', 'epic', 'legendary', 'mythic'];
 /** draw odds, in percent */
-export const RARITY_ODDS: Record<Rarity, number> = { common: 58, fine: 27, rare: 10, epic: 4, legendary: 1 };
-export const GROW_MINUTES: Record<Rarity, number> = { common: 20, fine: 45, rare: 90, epic: 180, legendary: 360 };
+export const RARITY_ODDS: Record<Rarity, number> = { common: 55, fine: 28, rare: 11, epic: 4.5, legendary: 1.4, mythic: 0.1 };
 
 export type SeedColor = 'red' | 'orange' | 'yellow' | 'pink' | 'purple' | 'blue' | 'white' | 'black' | 'gold' | 'rainbow';
 export const BASE_COLORS: SeedColor[] = ['red', 'orange', 'yellow', 'pink', 'purple', 'blue', 'white'];
@@ -20,21 +19,43 @@ export interface Species {
   rarity: Rarity;
   zh: string;
   en: string;
+  /** minutes from planting to ripe */
+  grow: number;
 }
 export const SPECIES: Species[] = [
-  { id: 'tulip', rarity: 'common', zh: '郁金香', en: 'Tulip' },
-  { id: 'daisy', rarity: 'common', zh: '雏菊', en: 'Daisy' },
-  { id: 'mushroom', rarity: 'common', zh: '蘑菇', en: 'Mushroom' },
-  { id: 'sunflower', rarity: 'fine', zh: '向日葵', en: 'Sunflower' },
-  { id: 'cactus', rarity: 'fine', zh: '仙人掌', en: 'Cactus' },
-  { id: 'strawberry', rarity: 'fine', zh: '大草莓', en: 'Strawberry' },
-  { id: 'rose', rarity: 'rare', zh: '玫瑰', en: 'Rose' },
-  { id: 'lotus', rarity: 'rare', zh: '睡莲', en: 'Lotus' },
-  { id: 'crystal', rarity: 'epic', zh: '水晶花', en: 'Crystal bloom' },
-  { id: 'coral', rarity: 'epic', zh: '珊瑚树', en: 'Coral tree' },
-  { id: 'crabclaw', rarity: 'legendary', zh: '蟹爪兰', en: 'Crab-claw cactus' },
-  { id: 'startree', rarity: 'legendary', zh: '星辰树', en: 'Star tree' },
+  { id: 'daisy', rarity: 'common', zh: '雏菊', en: 'Daisy', grow: 15 },
+  { id: 'clover', rarity: 'common', zh: '三叶草', en: 'Clover', grow: 20 },
+  { id: 'tulip', rarity: 'common', zh: '郁金香', en: 'Tulip', grow: 25 },
+  { id: 'dandelion', rarity: 'common', zh: '蒲公英', en: 'Dandelion', grow: 30 },
+  { id: 'mushroom', rarity: 'common', zh: '蘑菇', en: 'Mushroom', grow: 35 },
+  { id: 'carrot', rarity: 'common', zh: '胡萝卜', en: 'Carrot', grow: 40 },
+  { id: 'lavender', rarity: 'fine', zh: '薰衣草', en: 'Lavender', grow: 60 },
+  { id: 'strawberry', rarity: 'fine', zh: '大草莓', en: 'Strawberry', grow: 75 },
+  { id: 'bamboo', rarity: 'fine', zh: '翠竹', en: 'Bamboo', grow: 80 },
+  { id: 'sunflower', rarity: 'fine', zh: '向日葵', en: 'Sunflower', grow: 90 },
+  { id: 'pumpkin', rarity: 'fine', zh: '南瓜', en: 'Pumpkin', grow: 105 },
+  { id: 'cactus', rarity: 'fine', zh: '仙人掌', en: 'Cactus', grow: 120 },
+  { id: 'rose', rarity: 'rare', zh: '玫瑰', en: 'Rose', grow: 180 },
+  { id: 'lotus', rarity: 'rare', zh: '睡莲', en: 'Lotus', grow: 210 },
+  { id: 'orchid', rarity: 'rare', zh: '蝴蝶兰', en: 'Orchid', grow: 240 },
+  { id: 'venus', rarity: 'rare', zh: '捕蝇草', en: 'Venus flytrap', grow: 270 },
+  { id: 'bonsai', rarity: 'rare', zh: '盆景松', en: 'Bonsai pine', grow: 300 },
+  { id: 'crystal', rarity: 'epic', zh: '水晶花', en: 'Crystal bloom', grow: 480 },
+  { id: 'glowshroom', rarity: 'epic', zh: '荧光菇', en: 'Glowshroom', grow: 540 },
+  { id: 'coral', rarity: 'epic', zh: '珊瑚树', en: 'Coral tree', grow: 600 },
+  { id: 'cherry', rarity: 'epic', zh: '樱花树', en: 'Cherry blossom', grow: 720 },
+  { id: 'crabclaw', rarity: 'legendary', zh: '蟹爪兰', en: 'Crab-claw cactus', grow: 1080 },
+  { id: 'phoenix', rarity: 'legendary', zh: '凤凰木', en: 'Phoenix flame tree', grow: 1260 },
+  { id: 'startree', rarity: 'legendary', zh: '星辰树', en: 'Star tree', grow: 1440 },
+  { id: 'moonflower', rarity: 'mythic', zh: '月下美人', en: 'Moonflower', grow: 2880 },
+  { id: 'dragonblood', rarity: 'mythic', zh: '龙血树', en: 'Dragon’s blood tree', grow: 3600 },
+  { id: 'worldtree', rarity: 'mythic', zh: '世界树', en: 'World tree', grow: 4320 },
 ];
+
+/** Minutes a species takes from seed to ripe. */
+export function growMinutes(speciesId: string): number {
+  return speciesOf(speciesId).grow;
+}
 
 /** Colors a species can come in, by its rarity. */
 export function colorsFor(rarity: Rarity): SeedColor[] {
@@ -54,6 +75,8 @@ const MAX_SEEDS = 300;
 const MAX_CROPS = 400;
 /** chance a harvest comes out one quality better than its seed */
 export const MUTATION = 0.08;
+/** ...but a legendary only turns mythic this rarely */
+export const MYTHIC_MUTATION = 0.01;
 
 export interface Seed {
   id: string;
@@ -84,7 +107,7 @@ export interface FarmState {
   days: Record<string, number>;
   spentTokens: number;
   draws: number;
-  /** draws since the last legendary */
+  /** draws since the last legendary (or better) */
   pity: number;
   seeds: Seed[];
   plots: Plot[];
@@ -145,7 +168,8 @@ const uid = (rnd: () => number) => Date.now().toString(36) + Math.floor(rnd() * 
 const pick = <T>(list: T[], rnd: () => number): T => list[Math.min(list.length - 1, Math.floor(rnd() * list.length))];
 
 function rollRarity(rnd: () => number): Rarity {
-  let x = rnd() * 100;
+  // the odds are percentages with decimals: scale by their actual sum so float drift can't skip a tier
+  let x = rnd() * RARITIES.reduce((n, r) => n + RARITY_ODDS[r], 0);
   for (const r of RARITIES) {
     x -= RARITY_ODDS[r];
     if (x < 0) return r;
@@ -156,6 +180,7 @@ function rollRarity(rnd: () => number): Rarity {
 function rollColor(rarity: Rarity, rnd: () => number): SeedColor {
   const i = RARITIES.indexOf(rarity);
   const x = rnd();
+  if (rarity === 'mythic') return x < 0.25 ? 'rainbow' : x < 0.5 ? 'gold' : x < 0.6 ? 'black' : pick(BASE_COLORS, rnd);
   if (i >= 4 && x < 0.12) return 'rainbow';
   if (i >= 3 && x < 0.04) return 'rainbow';
   if (i >= 3 && x < 0.12) return 'gold';
@@ -179,8 +204,9 @@ export function draw(s: FarmState, count: number, rnd: () => number = Math.rando
   const out: Seed[] = [];
   for (let k = 0; k < n; k++) {
     let r = rollRarity(rnd);
-    if (s.pity + 1 >= PITY) r = 'legendary';
-    s.pity = r === 'legendary' ? 0 : s.pity + 1;
+    // pity promises a legendary, never a mythic (a mythic that turns up by luck stands)
+    if (s.pity + 1 >= PITY && r !== 'mythic') r = 'legendary';
+    s.pity = r === 'legendary' || r === 'mythic' ? 0 : s.pity + 1;
     out.push(makeSeed(r, rnd));
   }
   // a ten-draw holds at least one rare
@@ -203,7 +229,7 @@ export function plant(s: FarmState, plot: number, seedId: string, now = Date.now
   const i = s.seeds.findIndex((x) => x.id === seedId);
   if (i < 0) throw new FarmError('no such seed');
   const [seed] = s.seeds.splice(i, 1);
-  s.plots[plot] = { seed, plantedAt: now, readyAt: now + GROW_MINUTES[seed.rarity] * 60_000 };
+  s.plots[plot] = { seed, plantedAt: now, readyAt: now + growMinutes(seed.species) * 60_000 };
 }
 
 export function harvest(s: FarmState, plot: number, now = Date.now(), rnd: () => number = Math.random): Crop {
@@ -212,11 +238,23 @@ export function harvest(s: FarmState, plot: number, now = Date.now(), rnd: () =>
   if (now < p.readyAt) throw new FarmError('not ripe yet');
   if (s.crops.length >= MAX_CROPS) throw new FarmError('the showcase is full — give some plants away first');
   const i = RARITIES.indexOf(p.seed.rarity);
-  const mutated = i < RARITIES.length - 1 && rnd() < MUTATION;
+  const up = RARITIES[i + 1];
+  const mutated = !!up && rnd() < (up === 'mythic' ? MYTHIC_MUTATION : MUTATION);
   const crop: Crop = { id: uid(rnd), species: p.seed.species, rarity: RARITIES[mutated ? i + 1 : i], color: p.seed.color, harvestedAt: now, ...(mutated ? { mutated } : {}) };
   s.crops.push(crop);
   s.plots[plot] = {};
   return crop;
+}
+
+/** A visitor waters the field: every growing plant gets `minutes` closer to ripe. Returns how many grew. */
+export function waterField(s: FarmState, minutes: number, now = Date.now()): number {
+  let n = 0;
+  for (const p of s.plots) {
+    if (!p.seed || !p.readyAt || p.readyAt <= now) continue;
+    p.readyAt = Math.max(now, p.readyAt - minutes * 60_000);
+    n++;
+  }
+  return n;
 }
 
 /** Digs a plant up before it is ripe: the seed goes back into the bag. */

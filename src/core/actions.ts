@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -57,7 +57,7 @@ export function resolveBin(name: 'claude' | 'codex' | 'code' | 'cloudflared' | '
 }
 
 /** Windows .cmd shims can't be spawned directly; route them through cmd. Only fixed flags, ids and paths reach this command line — prompts go via stdin. */
-function spawnCli(bin: string, args: string[], opts: { cwd: string; env?: NodeJS.ProcessEnv }) {
+function spawnCli(bin: string, args: string[], opts: SpawnOptions & { cwd: string }) {
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin)) {
     const quoted = [bin, ...args].map((a) => `"${a.replace(/"/g, '""')}"`).join(' ');
     return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${quoted}"`], { ...opts, windowsVerbatimArguments: true });
@@ -199,7 +199,9 @@ export function codexHistory(file: string): TaskHistory {
 
 interface Job {
   id: string;
-  output: string;
+  title: string;
+  /** the instruction, on one line */
+  detail: string;
   agent: 'claude' | 'codex';
   cwd: string;
   startedAt: number;
@@ -208,6 +210,11 @@ interface Job {
   /** the agent session this run writes to, once known */
   sessionId?: string;
 }
+
+/** Where background runs keep their output and the list of runs still going. */
+const runsDir = () => path.join(dataDir(), 'runs');
+const outFile = (jobId: string) => path.join(runsDir(), `${jobId}.out`);
+const recordsFile = () => path.join(runsDir(), 'running.json');
 
 type Bins = { claudeBin: string; codexBin: string };
 
@@ -294,7 +301,63 @@ export class ActionRunner {
   constructor(private onJobUpdate: (job: JobUpdate) => void) {}
 
   jobOutput(id: string): string | undefined {
-    return this.jobs.get(id)?.output;
+    return this.jobs.has(id) ? readTail(outFile(id), 32_000) : undefined;
+  }
+
+  /**
+   * Runs live in their own process group and write to a file, so they keep going while
+   * VibePortal restarts (an update, a crash, the phone's "restart"). On start, pick the
+   * ones still running back up and follow them to the end.
+   */
+  adopt() {
+    let records: Job[] = [];
+    try {
+      records = JSON.parse(fs.readFileSync(recordsFile(), 'utf8'));
+    } catch {
+      /* none */
+    }
+    for (const r of Array.isArray(records) ? records : []) {
+      if (!r?.id || this.jobs.has(r.id) || !r.pid || !isOurRun(r.pid, r.agent)) continue;
+      const job: Job = { ...r, running: true };
+      this.jobs.set(job.id, job);
+      this.running++;
+      this.onJobUpdate({ id: job.id, title: job.title, state: 'running', detail: job.detail, cwd: job.cwd, agent: job.agent, sessionId: job.sessionId });
+      // not our child any more: no exit code, so watch the pid
+      const watch = setInterval(() => {
+        if (isOurRun(job.pid!, job.agent)) return;
+        clearInterval(watch);
+        this.finish(job, null);
+      }, 2000);
+      watch.unref?.();
+    }
+    this.saveRecords();
+  }
+
+  private saveRecords() {
+    const list = [...this.jobs.values()].filter((j) => j.running);
+    try {
+      fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(recordsFile(), JSON.stringify(list), { mode: 0o600 });
+    } catch {
+      /* best effort: the run itself goes on */
+    }
+  }
+
+  /** A run ended: `code` is null for one picked up after a restart (its exit code is gone). */
+  private finish(job: Job, code: number | null) {
+    if (!job.running) return;
+    this.running--;
+    job.running = false;
+    const last = readTail(outFile(job.id), 4000).trim().split('\n').filter(Boolean).pop();
+    this.onJobEnd?.(job.id);
+    this.onJobUpdate({ id: job.id, title: job.title, state: code === 0 || code === null ? 'done' : 'failed', detail: last ? oneLine(last) : `exit ${code}`, cwd: job.cwd, agent: job.agent, sessionId: job.sessionId });
+    this.saveRecords();
+    // keep a handful of outputs around
+    if (this.jobs.size > 20) {
+      const old = this.jobs.keys().next().value!;
+      this.jobs.delete(old);
+      fs.rm(outFile(old), { force: true }, () => {});
+    }
   }
 
   /** Background jobs (running or recent), so the session each one creates can be folded into it. */
@@ -308,7 +371,10 @@ export class ActionRunner {
 
   setJobSession(id: string, sessionId: string) {
     const j = this.jobs.get(id);
-    if (j && !j.sessionId) j.sessionId = sessionId;
+    if (j && !j.sessionId) {
+      j.sessionId = sessionId;
+      if (j.running) this.saveRecords();
+    }
   }
 
   /** Ask Claude (headless, no tools, nothing persisted) for up to three next steps. */
@@ -397,35 +463,33 @@ export class ActionRunner {
 
   private runJob(jobId: string, title: string, agent: 'claude' | 'codex', bin: string, args: string[], cwd: string, prompt: string, sessionId?: string): { jobId: string } {
     if (this.running >= 3) throw httpError(429, 'Too many background runs — wait for one to finish');
-    const job: Job = { id: jobId, output: '', agent, cwd, startedAt: Date.now(), running: true, sessionId };
+    const job: Job = { id: jobId, title, detail: oneLine(prompt), agent, cwd, startedAt: Date.now(), running: true, sessionId };
     this.jobs.set(jobId, job);
     this.running++;
-    this.onJobUpdate({ id: jobId, title, state: 'running', detail: oneLine(prompt), cwd, agent, sessionId });
+    this.onJobUpdate({ id: jobId, title, state: 'running', detail: job.detail, cwd, agent, sessionId });
     // Let the CLI label the session itself (headless runs are "sdk-cli", which VS Code keeps out of
     // its history list — the task's "Open in VS Code" opens it by id instead). Don't pass on an
     // entrypoint inherited from the terminal VibePortal was started in.
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined, CLAUDECODE: undefined };
-    const child = spawnCli(bin, args, { cwd, env });
+    // output goes to a file and the run gets its own process group: when VibePortal
+    // stops, the run neither gets a hang-up nor a broken pipe, and adopt() finds it again
+    fs.mkdirSync(runsDir(), { recursive: true, mode: 0o700 });
+    const out = fs.openSync(outFile(jobId), 'w', 0o600);
+    let child;
+    try {
+      child = spawnCli(bin, args, { cwd, env, stdio: ['pipe', out, out], detached: process.platform !== 'win32', windowsHide: true });
+    } finally {
+      fs.closeSync(out);
+    }
     job.pid = child.pid;
+    this.saveRecords();
     // the prompt goes through stdin: no quoting issues, nothing shell-interpreted
+    child.stdin?.on('error', () => {});
     child.stdin?.end(prompt);
-    const collect = (b: Buffer) => {
-      job.output = (job.output + b.toString('utf8')).slice(-32_000);
-    };
-    child.stdout?.on('data', collect);
-    child.stderr?.on('data', collect);
     child.on('error', (e) => {
-      collect(Buffer.from(String(e)));
+      fs.appendFile(outFile(jobId), `${e}\n`, () => {});
     });
-    child.on('close', (code) => {
-      this.running--;
-      job.running = false;
-      const last = job.output.trim().split('\n').filter(Boolean).pop();
-      this.onJobEnd?.(jobId);
-      this.onJobUpdate({ id: jobId, title, state: code === 0 ? 'done' : 'failed', detail: last ? oneLine(last) : `exit ${code}`, cwd, agent, sessionId: job.sessionId });
-      // keep a handful of outputs around
-      if (this.jobs.size > 20) this.jobs.delete(this.jobs.keys().next().value!);
-    });
+    child.on('close', (code) => this.finish(job, code ?? 1));
     return { jobId };
   }
 
@@ -501,6 +565,41 @@ function runCapture(bin: string, args: string[], stdin: string, cwd: string, tim
       else reject(httpError(502, (err || out).trim().split('\n').pop() || `exit ${code}`));
     });
   });
+}
+
+/** The last `maxBytes` of a file, as text ('' when it can't be read). */
+function readTail(file: string, maxBytes: number): string {
+  try {
+    const st = fs.statSync(file);
+    const start = Math.max(0, st.size - maxBytes);
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(st.size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      return buf.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
+/** Whether a run's process is still there (and is still an agent CLI, not a reused pid). */
+function isOurRun(pid: number, agent: 'claude' | 'codex'): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EPERM') return false;
+  }
+  if (process.platform !== 'linux') return true;
+  try {
+    const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+    // an exited child of ours that nobody reaped yet is a zombie with an empty command line
+    return cmd.includes(agent);
+  } catch {
+    return false;
+  }
 }
 
 function tailLines(file: string, maxBytes: number): string[] {
