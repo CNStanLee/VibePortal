@@ -4,7 +4,7 @@
  * friends' farms fetched from their own VibePortal. Pure helpers and types,
  * shared by the server and the UI.
  */
-import { BASE_COLORS, RARITIES, SPECIAL_COLORS, SPECIES, colorsFor, type Crop, type FarmView, type Rarity, type SeedColor } from './farm';
+import { BASE_COLORS, RARITIES, SPECIAL_COLORS, SPECIES, allCrops, colorsFor, type Crop, type FarmView, type Rarity, type SeedColor } from './farm';
 
 export interface FarmProfile {
   name: string;
@@ -49,6 +49,8 @@ export interface PublicFarm {
   earnedTokens: number;
   waters: { today: number; max: number };
   visitors: Visitor[];
+  /** how many farmer friends this farm keeps */
+  friends?: number;
   now: number;
 }
 
@@ -75,6 +77,8 @@ export const WATER_MINUTES = 20;
 export const WATERS_PER_DAY = 30;
 export const RARITY_SCORE: Record<Rarity, number> = { common: 1, fine: 2, rare: 5, epic: 12, legendary: 30, mythic: 100 };
 export const MAX_FRIENDS = 50;
+/** where to get VibePortal, for share cards and captions */
+export const REPO_URL = 'https://github.com/CNStanLee/VibePortal';
 
 export function farmScore(crops: Pick<Crop, 'rarity' | 'mutated'>[]): number {
   return crops.reduce((n, c) => n + (RARITY_SCORE[c.rarity] ?? 0) + (c.mutated ? 1 : 0), 0);
@@ -88,9 +92,11 @@ export function dexOf(crops: Pick<Crop, 'species' | 'color'>[]): { found: number
 const rank = (r: Rarity) => RARITIES.indexOf(r);
 
 /** The public card of a farm. */
-export function publicFarm(id: string, profile: FarmProfile, farm: FarmView, extra: { waterToday: number; visitors: Visitor[] }): PublicFarm {
+export function publicFarm(id: string, profile: FarmProfile, farm: FarmView, extra: { waterToday: number; visitors: Visitor[]; friends?: number }): PublicFarm {
+  // score and counts take in the storehouse too; the best plants are the ones on show
+  const owned = allCrops(farm);
   const byRarity: Partial<Record<Rarity, number>> = {};
-  for (const c of farm.crops) byRarity[c.rarity] = (byRarity[c.rarity] ?? 0) + 1;
+  for (const c of owned) byRarity[c.rarity] = (byRarity[c.rarity] ?? 0) + 1;
   // one of each kind first, best first: a showcase of 300 tulips shouldn't hide the one rose
   const seen = new Set<string>();
   const best = [...farm.crops]
@@ -107,15 +113,16 @@ export function publicFarm(id: string, profile: FarmProfile, farm: FarmView, ext
     v: 1,
     id,
     profile,
-    score: farmScore(farm.crops),
-    crops: farm.crops.length,
+    score: farmScore(owned),
+    crops: owned.length,
     byRarity,
-    dex: dexOf(farm.crops),
+    dex: dexOf(owned),
     best,
     field: farm.plots.flatMap((p) => (p.seed && p.plantedAt && p.readyAt ? [{ species: p.seed.species, color: p.seed.color, rarity: p.seed.rarity, plantedAt: p.plantedAt, readyAt: p.readyAt }] : [])),
     earnedTokens: farm.earnedTokens,
     waters: { today: extra.waterToday, max: WATERS_PER_DAY },
     visitors: extra.visitors.slice(0, 12),
+    ...(extra.friends ? { friends: extra.friends } : {}),
     now: farm.now,
   };
 }

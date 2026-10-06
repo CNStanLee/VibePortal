@@ -1,6 +1,6 @@
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
-import { discardCrop, draw, farmView, growMinutes, harvest, newFarm, plant, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
+import { discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
 import { cleanProfile, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm } from '../shared/farmSocial';
 import type {
   DailyUsage,
@@ -238,6 +238,9 @@ function snapshot(): Snapshot {
       updatedAt: ago(20),
       startedAt: ago(14_000),
     },
+    // put away with "Archive inactive"
+    { id: 'claude:55555555-5555-4555-8555-555555555555', kind: 'claude-code', provider: 'claude', title: 'Fix flaky login test', state: 'idle', canContinue: true, cwd: '/home/dev/src/acme-web', updatedAt: ago(26_000), archived: true },
+    { id: 'codex:66666666-6666-4666-8666-666666666666', kind: 'codex', provider: 'openai', title: 'Bump dependencies', state: 'done', canContinue: true, cwd: '/home/dev/src/ml-pipeline', updatedAt: ago(52_000), archived: true },
   ];
   return {
     generatedAt: ago(0),
@@ -432,6 +435,10 @@ function demoFarmCall(p: string, body: unknown): unknown {
       { id: 'demo-crop-3', species: 'cherry', rarity: 'epic', color: 'pink', harvestedAt: now - 20 * 3600_000 },
       { id: 'demo-crop-4', species: 'lavender', rarity: 'rare', color: 'purple', mutated: true, harvestedAt: now - 9 * 3600_000 },
     );
+    f.stored.push(
+      { id: 'demo-crop-5', species: 'tulip', rarity: 'common', color: 'yellow', harvestedAt: now - 3 * 86400_000 },
+      { id: 'demo-crop-6', species: 'daisy', rarity: 'common', color: 'white', harvestedAt: now - 3 * 86400_000 },
+    );
     f.seeds.push({ id: 'demo-seed-mythic', species: 'moonflower', rarity: 'mythic', color: 'white' });
     demoFarm = f;
   }
@@ -452,6 +459,8 @@ function demoFarmCall(p: string, body: unknown): unknown {
   else if (action === 'plant') plant(s, Number(b.plot), String(b.seedId));
   else if (action === 'harvest') result = harvest(s, Number(b.plot));
   else if (action === 'uproot') uproot(s, Number(b.plot));
+  else if (action === 'store') storeCrop(s, String(b.cropId));
+  else if (action === 'display') displayCrop(s, String(b.cropId));
   else if (action === 'discard') discardCrop(s, String(b.cropId));
   return { farm: farmView(s), result };
 }
@@ -479,7 +488,7 @@ function demoFriendFarm(id: string, profile: FarmProfile, crops: [string, Rarity
   crops.forEach(([species, rarity, color], i) => f.crops.push({ id: `${id}-${i}`, species, rarity, color, harvestedAt: now - i * 3600_000 }));
   f.plots[0] = { seed: { id: 's', species: 'rose', rarity: 'rare', color: 'red' }, plantedAt: now - 3600_000, readyAt: now + 2 * 3600_000 };
   f.plots[4] = { seed: { id: 't', species: 'tulip', rarity: 'common', color: 'yellow' }, plantedAt: now - 3600_000, readyAt: now - 60_000 };
-  return publicFarm(id, profile, farmView(f, now), { waterToday: 3, visitors: [{ name: 'Ada', github: 'ada-dev', at: now - 20 * 60_000 }] });
+  return publicFarm(id, profile, farmView(f, now), { waterToday: 3, visitors: [{ name: 'Ada', github: 'ada-dev', at: now - 20 * 60_000 }], friends: 4 });
 }
 
 function demoFriends(): FriendFarm[] {

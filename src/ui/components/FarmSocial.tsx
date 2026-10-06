@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RARITIES, stageOf, type FarmView, type Rarity } from '../../shared/farm';
-import { WATER_MINUTES, farmLink, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm, type Visitor } from '../../shared/farmSocial';
+import { REPO_URL, WATER_MINUTES, farmLink, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm, type Visitor } from '../../shared/farmSocial';
 import { farmCardSvg } from '../../shared/farmCard';
 import { api } from '../api';
 import { demoPublicFarm, isDemo } from '../demo';
 import { fmt, useT } from '../i18n';
 import { fmtTokens, relTime } from '../format';
 import { PlantSprite } from './FarmArt';
+import { Mascot } from './Mascots';
 
 /**
  * The farm's social side: your farmer profile and share link / card, friends'
@@ -61,8 +62,64 @@ function MyFarm({ farm, social, onChange }: { farm: FarmView; social: FarmSocial
   };
   const base = shareBase(social);
   const link = social.public && social.shareId ? farmLink(base, social.shareId) : undefined;
-  const card = useMemo(() => publicFarm(social.shareId ?? 'preview', social.profile, farm, { waterToday: 0, visitors: [] }), [social, farm]);
-  const text = fmt(t.socialShareText, { plants: card.crops, score: card.score, dex: `${card.dex.found}/${card.dex.total}`, tokens: fmtTokens(card.earnedTokens) });
+  const card = useMemo(
+    () => publicFarm(social.shareId ?? 'preview', social.profile, farm, { waterToday: 0, visitors: social.visitors, friends: social.friends.length }),
+    [social, farm],
+  );
+  const vars = { plants: card.crops, score: card.score, dex: `${card.dex.found}/${card.dex.total}`, tokens: fmtTokens(card.earnedTokens) };
+  // the farm, what VibePortal is, an invite to visit and water, where to get it
+  const caption = [fmt(t.socialShareText, vars), t.socialSharePitch, link && fmt(t.socialShareInvite, { link }), fmt(t.socialShareGet, { repo: REPO_URL }), t.socialShareTags]
+    .filter(Boolean)
+    .join('\n\n');
+  // a post on X has 280 characters: the short line, the farm link (or the app's), the app's link
+  const xText = [fmt(t.socialShareTextX, vars), link && fmt(t.socialShareGet, { repo: REPO_URL }), t.socialShareTags].filter(Boolean).join('\n');
+  const svg = useMemo(() => farmCardSvg(card, lang), [card, lang]);
+  // the picture is drawn ahead of the click: share sheets and the clipboard only work straight from a tap
+  const [png, setPng] = useState<Blob>();
+  useEffect(() => {
+    let live = true;
+    cardBlob(svg).then((b) => live && setPng(b), () => {});
+    return () => {
+      live = false;
+    };
+  }, [svg]);
+  const [shareMsg, setShareMsg] = useState('');
+  const shareSheet = (data: ShareData) => {
+    const file = png && new File([png], CARD_FILE, { type: 'image/png' });
+    const full = file ? { ...data, files: [file] } : data;
+    if (!file || !navigator.canShare?.(full)) return false;
+    void navigator.share(full).catch(() => {});
+    return true;
+  };
+  /**
+   * A post on LinkedIn or X with the card and the caption. A web link can only
+   * carry text, so: on a phone the share sheet takes both into the app's
+   * composer; elsewhere the composer opens with the caption and the picture
+   * waits on the clipboard (or in Downloads) to be pasted in.
+   */
+  const post = (url: string) => {
+    setShareMsg('');
+    if (matchMedia('(pointer: coarse)').matches) {
+      // some apps drop the text when a picture comes along: keep it on the clipboard too
+      void navigator.clipboard?.writeText(caption).catch(() => {});
+      if (shareSheet({ text: caption })) return setShareMsg(t.socialPickApp);
+    }
+    const open = () => window.open(url, '_blank', 'noopener');
+    if (!png) return open();
+    const saved = () => {
+      saveBlob(png);
+      setShareMsg(t.socialImageSaved);
+    };
+    if (window.isSecureContext && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+      navigator.clipboard
+        .write([new ClipboardItem({ 'image/png': png })])
+        .then(() => setShareMsg(t.socialImageCopied), saved)
+        .finally(open);
+    } else {
+      saved();
+      open();
+    }
+  };
   const badge =
     link && social.shareId ? `[![${social.profile.name}'s crab farm](${base.replace(/\/?$/, '/')}api/public/farm/${social.shareId}/card.svg${lang === 'zh' ? '?lang=zh' : ''})](${link})` : undefined;
   const copy = async (what: string, value: string) => {
@@ -131,21 +188,31 @@ function MyFarm({ farm, social, onChange }: { farm: FarmView; social: FarmSocial
             {!social.publicUrl && <p className="muted tiny">⚠ {t.socialNoPublicUrl}</p>}
           </>
         )}
-        <div className="social-card-preview" dangerouslySetInnerHTML={{ __html: farmCardSvg(card, lang) }} />
+        <div className="social-card-preview" dangerouslySetInnerHTML={{ __html: svg }} />
         <div className="action-row">
-          <button className="btn primary" onClick={() => void shareCard(card, lang, text, link)}>
+          <button
+            className="btn primary"
+            disabled={!png}
+            onClick={() => {
+              setShareMsg('');
+              // the phone's share sheet with the picture (LinkedIn, WeChat, …), else a download
+              void navigator.clipboard?.writeText(caption).catch(() => {});
+              if (!shareSheet({ text: caption }) && png) saveBlob(png);
+            }}
+          >
             📤 {t.socialShareCard}
           </button>
-          <button className="btn ghost" onClick={() => void downloadCard(card, lang)}>
+          <button className="btn ghost" disabled={!png} onClick={() => png && saveBlob(png)}>
             ⬇ {t.socialDownload}
           </button>
-          <a className="btn ghost" href={`https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(link ? `${text}\n${link}` : text)}`} target="_blank" rel="noopener noreferrer">
+          <button className="btn ghost" onClick={() => post(`https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(caption)}`)}>
             in {t.socialLinkedinPost}
-          </a>
-          <a className="btn ghost" href={`https://x.com/intent/post?text=${encodeURIComponent(text)}${link ? `&url=${encodeURIComponent(link)}` : ''}`} target="_blank" rel="noopener noreferrer">
+          </button>
+          <button className="btn ghost" onClick={() => post(`https://x.com/intent/post?text=${encodeURIComponent(xText)}&url=${encodeURIComponent(link ?? REPO_URL)}`)}>
             𝕏 {t.socialXPost}
-          </a>
+          </button>
         </div>
+        {shareMsg && <p className="muted small">{shareMsg}</p>}
         <div className="social-readme">
           <span className="muted tiny">
             <b>{t.socialReadme}</b> · {badge ? t.socialReadmeHelp : t.socialReadmeOff}
@@ -348,8 +415,9 @@ function GithubMark() {
 }
 
 // ── the share card as a picture ──────────────────────────────────────────────
-async function cardBlob(card: PublicFarm, lang: 'zh' | 'en'): Promise<Blob> {
-  const svg = farmCardSvg(card, lang);
+const CARD_FILE = 'vibeportal-farm.png';
+
+async function cardBlob(svg: string): Promise<Blob> {
   const img = new Image();
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   await img.decode();
@@ -363,24 +431,13 @@ async function cardBlob(card: PublicFarm, lang: 'zh' | 'en'): Promise<Blob> {
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('could not draw the card'))), 'image/png'));
 }
 
-async function downloadCard(card: PublicFarm, lang: 'zh' | 'en') {
-  const url = URL.createObjectURL(await cardBlob(card, lang));
+function saveBlob(blob: Blob) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'vibeportal-farm.png';
+  a.download = CARD_FILE;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-/** The phone's share sheet with the picture (LinkedIn, WeChat, …), else a download. */
-async function shareCard(card: PublicFarm, lang: 'zh' | 'en', text: string, link?: string) {
-  const file = new File([await cardBlob(card, lang)], 'vibeportal-farm.png', { type: 'image/png' });
-  const data: ShareData = { files: [file], text, ...(link ? { url: link } : {}) };
-  if (navigator.canShare?.(data)) {
-    await navigator.share(data).catch(() => {});
-    return;
-  }
-  await downloadCard(card, lang);
 }
 
 // ── someone else's farm, opened from its share link (no sign-in) ──────────────
@@ -526,25 +583,40 @@ export function FarmVisit({ id }: { id: string }) {
         </div>
       </section>
 
+      <GetOwn name={farm.profile.name} />
       {farm.visitors.length > 0 && (
         <section className="card">
           <h2>👣 {t.socialVisitors}</h2>
           <Visitors visitors={farm.visitors} />
         </section>
       )}
-      <GetOwn />
     </div>
   );
 }
 
-function GetOwn() {
+function GetOwn({ name }: { name?: string }) {
   const { t } = useT();
+  if (!name)
+    return (
+      <p className="visit-own muted small">
+        <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
+          🦀 {t.visitGetOwn} ↗
+        </a>
+      </p>
+    );
+  // someone came from a share link: what VibePortal is, and how to become farmer friends
   return (
-    <p className="visit-own muted small">
-      <a href="https://github.com/CNStanLee/VibePortal" target="_blank" rel="noopener noreferrer">
-        🦀 {t.visitGetOwn} ↗
+    <section className="card visit-pitch">
+      <Mascot kind="crab" mood="happy" size={44} />
+      <div>
+        <h2>{t.visitPitchTitle}</h2>
+        <p className="small">{t.visitPitch}</p>
+        <p className="muted small">👥 {fmt(t.visitPitchFriend, { name })}</p>
+      </div>
+      <a className="btn primary" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+        🦀 {t.visitPitchGet} ↗
       </a>
-    </p>
+    </section>
   );
 }
 

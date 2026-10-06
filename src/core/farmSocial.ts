@@ -104,7 +104,7 @@ export class FarmSocial {
     const s = this.load();
     if (!s.public || !s.shareId || id !== s.shareId) return undefined;
     this.rollDay();
-    return publicFarm(s.shareId, s.profile, farm(), { waterToday: s.watered.length, visitors: s.visitors });
+    return publicFarm(s.shareId, s.profile, farm(), { waterToday: s.watered.length, visitors: s.visitors, friends: s.friends.length });
   }
 
   /**

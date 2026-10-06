@@ -162,6 +162,8 @@ export interface TaskInfo {
   activity?: TaskActivity;
   /** machine name for tasks merged from a remote VibePortal */
   host?: string;
+  /** put away with "Archive inactive" (and quiet since) */
+  archived?: boolean;
 }
 
 /** What a tool call was doing; the UI turns it into a localized label. */
@@ -246,7 +248,7 @@ export type PetMood = 'idle' | 'working' | 'waiting' | 'alert' | 'sleeping' | 'h
 /** which home pets show when nothing is running */
 export type PetCharacter = 'duo' | 'claude' | 'codex';
 /** the pet that represents Codex */
-export type CodexPet = 'bot' | 'whale';
+export type CodexPet = 'bot' | 'whale' | 'frog';
 
 export interface PetState {
   mood: PetMood;

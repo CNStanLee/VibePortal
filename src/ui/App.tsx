@@ -203,8 +203,7 @@ export function Dashboard() {
         ) : tab === 'tasks' ? (
           <div className="tasks-page">
             <section className="card">
-              <h2>{t.tasks}</h2>
-              <TaskList tasks={snapshot.tasks} expandable machineName={snapshot.machineName} />
+              <TaskList tasks={snapshot.tasks} expandable machineName={snapshot.machineName} title={t.tasks} />
             </section>
             <OfficialRemoteCard state={snapshot.official} />
             <DevicesCard />

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MULTI_DRAW, MUTATION, MYTHIC_MUTATION, PITY, RARITIES, RARITY_ODDS, SPECIAL_COLORS, SPECIES, TOKENS_PER_DRAW, WELCOME_DRAWS, colorsFor, creditUsage, draw, farmView, growMinutes, harvest, newFarm, normalizeFarm, plant, stageOf, uproot, type Rarity } from '../src/shared/farm';
+import { MULTI_DRAW, MUTATION, MYTHIC_MUTATION, PITY, RARITIES, RARITY_ODDS, SPECIAL_COLORS, SPECIES, TOKENS_PER_DRAW, WELCOME_DRAWS, allCrops, colorsFor, creditUsage, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, normalizeFarm, plant, stageOf, storeCrop, uproot, type Rarity } from '../src/shared/farm';
 import { farmDaily } from '../src/core/farm';
 
 /** a repeatable stand-in for Math.random */
@@ -67,6 +67,25 @@ test('farm: a mutated harvest comes out one quality better', () => {
   const crop = harvest(f, 0, Date.now() + 864e5, () => 0);
   assert.equal(crop.rarity, 'fine');
   assert.equal(crop.mutated, true);
+});
+
+test('farm: plants taken off the showcase wait in the storehouse until put back or given away', () => {
+  const f = newFarm('2026-10-05');
+  const crop = { id: 'c1', species: 'rose', rarity: 'rare' as Rarity, color: 'red' as const, harvestedAt: 1 };
+  f.crops.push(crop, { ...crop, id: 'c2' });
+  storeCrop(f, 'c1');
+  assert.deepEqual(f.crops.map((c) => c.id), ['c2']);
+  assert.deepEqual(f.stored, [crop]);
+  assert.equal(allCrops(f).length, 2);
+  assert.throws(() => storeCrop(f, 'c1'), /no such plant/);
+  displayCrop(f, 'c1');
+  assert.deepEqual(f.crops.map((c) => c.id), ['c2', 'c1']);
+  assert.deepEqual(f.stored, []);
+  storeCrop(f, 'c2');
+  discardCrop(f, 'c2');
+  assert.equal(allCrops(f).length, 1);
+  // farms saved before the storehouse existed get an empty one
+  assert.deepEqual(normalizeFarm({ crops: [crop] }, '2026-10-05').stored, []);
 });
 
 test('farm: a damaged file still loads, and tokens exclude cache reads', () => {

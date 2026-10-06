@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { PublicSettings, ServerInfo, SettingsPatch } from '../../shared/types';
+import type { CodexPet, PublicSettings, ServerInfo, SettingsPatch } from '../../shared/types';
 import { api, desktop, getToken } from '../api';
 import { useT } from '../i18n';
 import { RemoteSettings } from './Remote';
@@ -100,9 +100,10 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
             </select>
           </Field>
           <Field label={t.codexPet}>
-            <select value={v.pet.codexPet} onChange={(e) => set({ pet: { codexPet: e.target.value as 'bot' | 'whale' } })}>
+            <select value={v.pet.codexPet} onChange={(e) => set({ pet: { codexPet: e.target.value as CodexPet } })}>
               <option value="bot">{t.bot}</option>
               <option value="whale">{t.whale}</option>
+              <option value="frog">{t.frog}</option>
             </select>
           </Field>
           <Field label={lang === 'zh' ? '“建议下一步”使用的模型' : 'Model for "suggest next step"'}>

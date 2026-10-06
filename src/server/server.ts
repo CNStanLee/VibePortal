@@ -224,7 +224,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       if (p === '/api/snapshot' && req.method === 'GET') return json(res, 200, monitor.current() ?? null);
       // ── the crab farm ──
       if (p === '/api/farm' && req.method === 'GET') return json(res, 200, farm.view(monitor.current()?.providers));
-      const fm = /^\/api\/farm\/(draw|plant|harvest|uproot|discard)$/.exec(p);
+      const fm = /^\/api\/farm\/(draw|plant|harvest|uproot|store|display|discard)$/.exec(p);
       if (fm && req.method === 'POST') return json(res, 200, farm.act(fm[1], await readJson(req), monitor.current()?.providers));
       if (p === '/api/farm/social') {
         if (req.method === 'POST') social.update(await readJson(req));
@@ -454,6 +454,16 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           monitor.poke();
           return json(res, 200, r);
         }
+      }
+
+      // ── archive: put inactive conversations away / bring them back ──
+      if (p === '/api/tasks-archive' && req.method === 'POST') {
+        const body = (await readJson(req)) as { ids?: unknown; restore?: unknown };
+        const ids = Array.isArray(body?.ids) ? body.ids.filter((x): x is string => typeof x === 'string') : undefined;
+        const tasks = monitor.current()?.tasks ?? [];
+        const n = body?.restore ? monitor.archive.restore(ids) : monitor.archive.archive(ids ? tasks.filter((x) => ids.includes(x.id)) : tasks);
+        monitor.poke();
+        return json(res, 200, { ok: true, n });
       }
 
       // ── task actions: /api/tasks/<id>[/context|/suggest|/continue|/open] ──

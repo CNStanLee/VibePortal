@@ -12,7 +12,7 @@ export function Gallery() {
   return (
     <div>
       <div className="gallery">
-        {(['crab', 'bot', 'whale'] as MascotKind[]).flatMap((k) =>
+        {(['crab', 'bot', 'whale', 'frog'] as MascotKind[]).flatMap((k) =>
           MOODS.map((m) => (
             <figure key={k + m}>
               <Mascot kind={k} mood={m} size={110} />

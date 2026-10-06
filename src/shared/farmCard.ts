@@ -5,7 +5,7 @@
  */
 import type { Rarity } from './farm';
 import { plantPixels, RAINBOW } from './farmArt';
-import type { PublicFarm } from './farmSocial';
+import { REPO_URL, type PublicFarm } from './farmSocial';
 
 const RARITY_COLOR: Record<Rarity, string> = {
   common: '#9aa3b5',
@@ -35,16 +35,40 @@ function plantRects(species: string, color: PublicFarm['best'][number]['color'])
 
 export function farmCardSvg(f: PublicFarm, lang: 'zh' | 'en' = 'en'): string {
   const W = 495;
-  const H = 200;
   const L =
     lang === 'zh'
-      ? { title: '的螃蟹农场', score: '分数', plants: '植物', dex: '图鉴', tokens: 'Tokens', empty: '还在等第一株植物…' }
-      : { title: '’s crab farm', score: 'Score', plants: 'Plants', dex: 'Dex', tokens: 'Tokens', empty: 'Waiting for the first plant…' };
+      ? {
+          title: '的螃蟹农场',
+          score: '分数',
+          plants: '植物',
+          dex: '图鉴',
+          tokens: 'Tokens',
+          empty: '还在等第一株植物…',
+          social: `👥 农友 ${f.friends ?? 0}  ·  👣 访客 ${f.visitors.length}  ·  💧 今日浇水 ${f.waters.today}/${f.waters.max}`,
+          app: 'Claude Code 和 Codex 的桌面宠物',
+          pitch: '烧 token 抽种子种植物 · 加农友，互相串门浇水',
+          get: '免费开源',
+        }
+      : {
+          title: '’s crab farm',
+          score: 'Score',
+          plants: 'Plants',
+          dex: 'Dex',
+          tokens: 'Tokens',
+          empty: 'Waiting for the first plant…',
+          social: `👥 ${f.friends ?? 0} farmer friends  ·  👣 ${f.visitors.length} visitors  ·  💧 ${f.waters.today}/${f.waters.max} waters today`,
+          app: 'the desktop pet for Claude Code & Codex',
+          pitch: 'Burn tokens, grow plants · add farmer friends, visit and water their farms',
+          get: 'free & open source',
+        };
   const name = esc(f.profile.name.slice(0, 28));
   const handles = [f.profile.github && `github.com/${f.profile.github}`, f.profile.linkedin && f.profile.linkedin.replace(/^https:\/\/www\./, ''), f.profile.x && `@${f.profile.x}`]
     .filter(Boolean)
     .map((s) => esc(s as string))
     .join('  ·  ');
+  // the app's banner along the bottom: what VibePortal is and where to get it
+  const band = 64;
+  const H = 204 + (handles ? 18 : 0) + band;
   const stats = [
     [L.score, String(f.score)],
     [L.plants, String(f.crops)],
@@ -60,17 +84,24 @@ export function farmCardSvg(f: PublicFarm, lang: 'zh' | 'en' = 'en'): string {
       return `<g transform="translate(${x.toFixed(1)} 108)"><g transform="scale(${size / 16})" shape-rendering="crispEdges">${plantRects(c.species, c.color)}</g><rect x="4" y="${size + 3}" width="${size - 8}" height="3" rx="1.5" fill="${RARITY_COLOR[c.rarity]}"/></g>`;
     })
     .join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${name}${esc(L.title)}">
-<defs><linearGradient id="aurora" x1="0" x2="1">${RAINBOW.map((c, i) => `<stop offset="${(i / (RAINBOW.length - 1)).toFixed(2)}" stop-color="${c}"/>`).join('')}</linearGradient></defs>
+  const repo = REPO_URL.replace(/^https:\/\//, '');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${name}${esc(L.title)} · VibePortal">
+<defs><linearGradient id="aurora" x1="0" x2="1">${RAINBOW.map((c, i) => `<stop offset="${(i / (RAINBOW.length - 1)).toFixed(2)}" stop-color="${c}"/>`).join('')}</linearGradient><clipPath id="card"><rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="12"/></clipPath></defs>
 <style>
 .bg{fill:#fcfbf8;stroke:#e4e2dc}.t{fill:#1f1d1a;font:700 18px system-ui,-apple-system,'Segoe UI',sans-serif}.s{fill:#7d7a73;font:500 11px system-ui,-apple-system,'Segoe UI',sans-serif}.v{fill:#1f1d1a;font:700 16px system-ui,-apple-system,'Segoe UI',sans-serif}.k{fill:#7d7a73;font:500 10px system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-transform:uppercase}.e{fill:#7d7a73;font:italic 12px system-ui,sans-serif}
-@media (prefers-color-scheme: dark){.bg{fill:#161b22;stroke:#30363d}.t,.v{fill:#e6edf3}.s,.k,.e{fill:#8b949e}}
+.so{fill:#4a4740;font:600 11px system-ui,-apple-system,'Segoe UI',sans-serif}.band{fill:#fff1e8}.bl{fill:#e4e2dc}.ba{fill:#d9532c;font:800 13px system-ui,-apple-system,'Segoe UI',sans-serif}.bt{fill:#4a4740;font:500 11px system-ui,-apple-system,'Segoe UI',sans-serif}.bu{fill:#d9532c;font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme: dark){.bg{fill:#161b22;stroke:#30363d}.t,.v{fill:#e6edf3}.s,.k,.e{fill:#8b949e}.so,.bt{fill:#c9d1d9}.band{fill:#2a1d18}.bl{fill:#30363d}.ba,.bu{fill:#ff8a5c}}
 </style>
 <rect class="bg" x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="12"/>
 <text class="t" x="20" y="34">🦀 ${name}${esc(L.title)}</text>
 <text class="s" x="${W - 20}" y="32" text-anchor="end">VibePortal</text>
 ${stats.map(([k, v], i) => `<text class="k" x="${20 + i * 116}" y="62">${esc(k)}</text><text class="v" x="${20 + i * 116}" y="82">${esc(v)}</text>`).join('')}
 ${best.length ? plants : `<text class="e" x="20" y="140">${esc(L.empty)}</text>`}
-${handles ? `<text class="s" x="20" y="${H - 14}">${handles}</text>` : ''}
+<text class="so" x="20" y="186">${esc(L.social)}</text>
+${handles ? `<text class="s" x="20" y="204">${handles}</text>` : ''}
+<g clip-path="url(#card)"><rect class="band" x="0" y="${H - band}" width="${W}" height="${band}"/><rect class="bl" x="0" y="${H - band}" width="${W}" height="1"/></g>
+<text x="20" y="${H - band + 21}"><tspan class="ba">🦀 VibePortal</tspan><tspan class="bt" dx="6">${esc(L.app)}</tspan></text>
+<text class="bt" x="20" y="${H - band + 38}">${esc(L.pitch)}</text>
+<text x="20" y="${H - band + 55}"><tspan class="bu">${esc(repo)}</tspan><tspan class="bt" dx="6">· ${esc(L.get)}</tspan></text>
 </svg>`;
 }

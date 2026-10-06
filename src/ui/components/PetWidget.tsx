@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PetMood, ProviderSnapshot, QuotaWindow, Snapshot, TaskInfo } from '../../shared/types';
+import type { CodexPet, PetMood, ProviderSnapshot, QuotaWindow, Snapshot, TaskInfo } from '../../shared/types';
 import { desktop, dismissedTasks } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
@@ -574,7 +574,7 @@ function crabScene(u: Unit, index: number): CrabScene | undefined {
   return IDLE[(Math.floor(Date.now() / 90_000) + index) % IDLE.length];
 }
 
-function buildUnits(snapshot: Snapshot | null, character: 'duo' | 'claude' | 'codex', codexPet: 'bot' | 'whale'): Unit[] {
+function buildUnits(snapshot: Snapshot | null, character: 'duo' | 'claude' | 'codex', codexPet: CodexPet): Unit[] {
   const dismissed = dismissedTasks();
   const now = Date.now();
   // clones always follow the task's service: crab for Claude Code, the Codex pet for Codex
@@ -582,6 +582,8 @@ function buildUnits(snapshot: Snapshot | null, character: 'duo' | 'claude' | 'co
   const providerFor = (t: TaskInfo): 'claude' | 'openai' => t.provider ?? (t.kind === 'codex' ? 'openai' : 'claude');
   const units: Unit[] = [];
   for (const task of snapshot?.tasks ?? []) {
+    // archived: seen and put away, nothing to call you over
+    if (task.archived) continue;
     const stamp = task.finishedAt ?? task.updatedAt;
     const finishedRecently = !!task.finishedAt && now - Date.parse(task.finishedAt) < ATTENTION_MS;
     const failedRecently = task.state === 'failed' && now - Date.parse(task.updatedAt) < ATTENTION_MS;

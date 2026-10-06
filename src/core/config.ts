@@ -180,7 +180,7 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
     if (typeof p.pet.enabled === 'boolean') next.pet.enabled = p.pet.enabled;
     next.pet.size = clamp(p.pet.size, 80, 320, cfg.pet.size);
     if (isCharacter(p.pet.character)) next.pet.character = p.pet.character;
-    if (p.pet.codexPet === 'bot' || p.pet.codexPet === 'whale') next.pet.codexPet = p.pet.codexPet;
+    if (p.pet.codexPet === 'bot' || p.pet.codexPet === 'whale' || p.pet.codexPet === 'frog') next.pet.codexPet = p.pet.codexPet;
   }
   if (typeof p.suggestModel === 'string' && /^[\w.:-]{1,64}$/.test(p.suggestModel.trim())) next.suggestModel = p.suggestModel.trim();
   if (typeof p.remotePassword === 'string') {
@@ -237,7 +237,7 @@ const isCharacter = (c: unknown): c is PetCharacter => c === 'duo' || c === 'cla
 function migratePet(pet: Record<string, unknown>): Config['pet'] {
   const old = pet.character;
   const character: PetCharacter = isCharacter(old) ? old : old === 'crab' ? 'claude' : old === 'whale' ? 'codex' : 'duo';
-  const codexPet: CodexPet = pet.codexPet === 'whale' || old === 'whale' ? 'whale' : 'bot';
+  const codexPet: CodexPet = pet.codexPet === 'frog' ? 'frog' : pet.codexPet === 'whale' || old === 'whale' ? 'whale' : 'bot';
   return {
     enabled: pet.enabled !== false,
     size: typeof pet.size === 'number' ? pet.size : 140,

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ProviderSnapshot } from '../shared/types';
-import { FarmError, creditUsage, waterField, discardCrop, draw, farmView, harvest, normalizeFarm, plant, uproot, type FarmState, type FarmView } from '../shared/farm';
+import { FarmError, creditUsage, waterField, discardCrop, displayCrop, storeCrop, draw, farmView, harvest, normalizeFarm, plant, uproot, type FarmState, type FarmView } from '../shared/farm';
 import { dataDir } from './config';
 import { localDate } from './jsonl';
 
@@ -51,7 +51,7 @@ export class FarmStore {
     return n;
   }
 
-  /** draw | plant | harvest | uproot | discard */
+  /** draw | plant | harvest | uproot | store | display | discard */
   act(action: string, body: any, providers: ProviderSnapshot[] = []): { farm: FarmView; result?: unknown } {
     const s = this.load();
     creditUsage(s, farmDaily(providers));
@@ -68,6 +68,12 @@ export class FarmStore {
         break;
       case 'uproot':
         uproot(s, Number(body?.plot));
+        break;
+      case 'store':
+        storeCrop(s, String(body?.cropId ?? ''));
+        break;
+      case 'display':
+        displayCrop(s, String(body?.cropId ?? ''));
         break;
       case 'discard':
         discardCrop(s, String(body?.cropId ?? ''));

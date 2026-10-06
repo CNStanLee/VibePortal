@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, colorsFor, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, allCrops, colorsFor, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
 import { api } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
@@ -45,7 +45,8 @@ function growLabel(min: number, lang: Lang): string {
 
 /**
  * The crab farm: the tokens you burn buy seed draws, seeds grow into pixel
- * plants, and the plants sit in a showcase. Purely for looks.
+ * plants, and the plants sit in a showcase (or wait in the storehouse). Purely
+ * for looks.
  */
 export function FarmPage() {
   const { t, lang } = useT();
@@ -55,9 +56,10 @@ export function FarmPage() {
   const [now, setNow] = useState(Date.now());
   const [picking, setPicking] = useState<number | null>(null);
   const [reveal, setReveal] = useState<Seed[] | null>(null);
+  const [spinning, setSpinning] = useState(false);
   const [shown, setShown] = useState<Crop | null>(null);
   const [fresh, setFresh] = useState<Crop[] | null>(null);
-  const [view, setView] = useState<'showcase' | 'dex'>('showcase');
+  const [view, setView] = useState<'showcase' | 'store' | 'dex'>('showcase');
 
   const load = () =>
     api
@@ -94,7 +96,9 @@ export function FarmPage() {
 
   const doDraw = async (count: number) => {
     const seeds = await act<Seed[]>('draw', { count });
-    if (seeds) setReveal(seeds);
+    if (!seeds) return;
+    setReveal(seeds);
+    setSpinning(!matchMedia('(prefers-reduced-motion: reduce)').matches);
   };
   const plantSeed = async (plot: number, seedId: string) => {
     setPicking(null);
@@ -113,6 +117,7 @@ export function FarmPage() {
     return <div className="farm">{error ? <p className="action-msg">{error}</p> : <div className="loading"><div className="spinner" aria-hidden /></div>}</div>;
   }
 
+  const shownStored = !!shown && farm.stored.some((c) => c.id === shown.id);
   const ripe = farm.plots.flatMap((p, i) => (p.seed && stageOf(p, now) === 3 ? [i] : []));
   const firstEmpty = farm.plots.findIndex((p) => !p.seed);
   const toNext = farm.tokensPerDraw - (farm.balance % farm.tokensPerDraw);
@@ -211,12 +216,21 @@ export function FarmPage() {
             <button role="tab" aria-selected={view === 'showcase'} onClick={() => setView('showcase')}>
               🏺 {t.farmShowcase} <span className="muted">{farm.crops.length}</span>
             </button>
+            <button role="tab" aria-selected={view === 'store'} onClick={() => setView('store')}>
+              📦 {t.farmStore} <span className="muted">{farm.stored.length}</span>
+            </button>
             <button role="tab" aria-selected={view === 'dex'} onClick={() => setView('dex')}>
               📖 {t.farmDex}
             </button>
           </div>
         </header>
-        {view === 'showcase' ? <Showcase crops={farm.crops} lang={lang} onOpen={setShown} /> : <Dex crops={farm.crops} lang={lang} />}
+        {view === 'showcase' ? (
+          <Showcase crops={farm.crops} empty={t.farmShowcaseEmpty} lang={lang} onOpen={setShown} />
+        ) : view === 'store' ? (
+          <Showcase crops={farm.stored} empty={t.farmStoreEmpty} lang={lang} onOpen={setShown} />
+        ) : (
+          <Dex crops={allCrops(farm)} lang={lang} />
+        )}
       </section>
 
       <FarmSocialSection farm={farm} />
@@ -227,7 +241,12 @@ export function FarmPage() {
           <SeedBag seeds={farm.seeds} lang={lang} onPick={(s) => void plantSeed(picking, s.id)} big />
         </Modal>
       )}
-      {reveal && (
+      {reveal && spinning && (
+        <Modal onClose={() => setSpinning(false)} label={t.farmSpinning}>
+          <Spin seeds={reveal} lang={lang} onDone={() => setSpinning(false)} />
+        </Modal>
+      )}
+      {reveal && !spinning && (
         <Modal onClose={() => setReveal(null)} label={t.farmGot}>
           <h3>{t.farmGot}</h3>
           <div className={`reveal ${reveal.length > 1 ? 'ten' : ''}`}>
@@ -278,20 +297,210 @@ export function FarmPage() {
               <button className="btn ghost" onClick={() => setShown(null)}>
                 {t.close}
               </button>
-              <button
-                className="btn ghost"
-                onClick={() => {
-                  if (!window.confirm(t.farmDiscardAsk)) return;
-                  void act('discard', { cropId: shown.id });
-                  setShown(null);
-                }}
-              >
-                👋 {t.farmDiscard}
-              </button>
+              {shownStored ? (
+                <>
+                  <button
+                    className="btn ghost"
+                    onClick={() => {
+                      if (!window.confirm(t.farmDiscardAsk)) return;
+                      void act('discard', { cropId: shown.id });
+                      setShown(null);
+                    }}
+                  >
+                    👋 {t.farmDiscard}
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={busy}
+                    onClick={() => {
+                      void act('display', { cropId: shown.id });
+                      setShown(null);
+                    }}
+                  >
+                    🏺 {t.farmToDisplay}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    void act('store', { cropId: shown.id });
+                    setShown(null);
+                  }}
+                >
+                  📦 {t.farmToStore}
+                </button>
+              )}
             </div>
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ── the draw: a CS:GO-style case opening ──────────────────────────────────────
+/** packets on a reel, and where on it the drawn seed sits (more packets run on past it) */
+const REEL = { one: { len: 56, win: 48, cell: 100, packet: 64, ms: 5600 }, ten: { len: 36, win: 29, cell: 50, packet: 32, ms: 3400 } };
+/** the reel's filler odds: the good stuff turns up more often than in the real draw, to tease */
+const TEASE: Record<Rarity, number> = { common: 38, fine: 28, rare: 17, epic: 10, legendary: 5, mythic: 2 };
+const MUTE_KEY = 'vp.farm.mute';
+const pick = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
+
+function fillerSeed(rarity?: Rarity): Seed {
+  let x = Math.random() * 100;
+  const r = rarity ?? RARITIES.find((q) => (x -= TEASE[q]) < 0) ?? 'common';
+  return { id: '', species: pick(SPECIES.filter((s) => s.rarity === r)).id, color: pick(colorsFor(r)), rarity: r };
+}
+
+function reelFor(win: Seed, len: number, at: number): Seed[] {
+  const items = Array.from({ length: len }, () => fillerSeed());
+  items[at] = win;
+  // a near miss: something better right next to what you got
+  if (rank(win.rarity) < rank('legendary') && Math.random() < 0.55) {
+    const better = RARITIES[Math.min(rank(win.rarity) + 1 + Math.floor(Math.random() * 2), rank('legendary'))];
+    items[at + (Math.random() < 0.5 ? -1 : 1)] = fillerSeed(better);
+  }
+  return items;
+}
+
+/**
+ * The seeds you drew, one reel each: packets race past the marker, slow down
+ * and stop on yours (with a tick per packet, like opening a case). A ten-draw
+ * spins ten small reels that stop one after another.
+ */
+function Spin({ seeds, lang, onDone }: { seeds: Seed[]; lang: Lang; onDone: () => void }) {
+  const { t } = useT();
+  const cfg = seeds.length > 1 ? REEL.ten : REEL.one;
+  const reels = useMemo(() => seeds.map((s) => reelFor(s, cfg.len, cfg.win)), [seeds, cfg]);
+  const box = useRef<HTMLDivElement>(null);
+  const tracks = useRef<(HTMLDivElement | null)[]>([]);
+  const [landed, setLanded] = useState(0);
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_KEY) === '1');
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+  const done = useRef(onDone);
+  done.current = onDone;
+
+  useEffect(() => {
+    const view = box.current?.clientWidth ?? 320;
+    const centre = cfg.win * cfg.cell + cfg.cell / 2 - view / 2;
+    // stop somewhere on the packet, not dead centre, then ease onto it
+    const ends = seeds.map(() => centre + (Math.random() - 0.5) * cfg.cell * 0.8);
+    const durs = seeds.map((_, i) => cfg.ms + i * 240);
+    const timers: number[] = [];
+    let frame = 0;
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        tracks.current.forEach((el, i) => {
+          if (!el) return;
+          el.style.transition = `transform ${durs[i]}ms cubic-bezier(0.12, 0.6, 0.12, 1)`;
+          el.style.transform = `translateX(${-ends[i]}px)`;
+        });
+        frame = requestAnimationFrame(follow);
+      });
+    });
+    durs.forEach((d, i) =>
+      timers.push(
+        window.setTimeout(() => {
+          const el = tracks.current[i];
+          if (el) {
+            el.style.transition = 'transform 400ms ease-in-out';
+            el.style.transform = `translateX(${-centre}px)`;
+          }
+          setLanded(i + 1);
+          if (rank(seeds[i].rarity) >= rank('legendary')) navigator.vibrate?.(80);
+        }, d),
+      ),
+    );
+    const last = durs[durs.length - 1];
+    timers.push(window.setTimeout(() => done.current(), last + (seeds.length > 1 ? 1000 : 1500)));
+
+    // a tick each time a packet crosses the marker, following the last (slowest) reel
+    let audio: AudioContext | undefined;
+    let passed = -1;
+    let lastTick = 0;
+    const tick = () => {
+      if (mutedRef.current) return;
+      try {
+        audio ??= new AudioContext();
+        void audio.resume().catch(() => {});
+        const o = audio.createOscillator();
+        const g = audio.createGain();
+        const at = audio.currentTime;
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(1400, at);
+        o.frequency.exponentialRampToValueAtTime(700, at + 0.03);
+        g.gain.setValueAtTime(0.06, at);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+        o.connect(g).connect(audio.destination);
+        o.start(at);
+        o.stop(at + 0.05);
+      } catch {
+        /* no audio here */
+      }
+    };
+    const started = performance.now();
+    function follow(now: number) {
+      const el = tracks.current[seeds.length - 1];
+      if (!el || now - started > last + 200) return;
+      const x = -new DOMMatrixReadOnly(getComputedStyle(el).transform).m41;
+      const at = Math.floor((x + view / 2) / cfg.cell);
+      if (at !== passed) {
+        if (passed >= 0 && now - lastTick > 30) {
+          tick();
+          lastTick = now;
+        }
+        passed = at;
+      }
+      frame = requestAnimationFrame(follow);
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      timers.forEach(clearTimeout);
+      void audio?.close().catch(() => {});
+    };
+  }, [seeds, cfg]);
+
+  return (
+    <div className={`spin ${seeds.length > 1 ? 'ten' : 'one'}`} style={{ '--cell': `${cfg.cell}px` } as React.CSSProperties}>
+      <h3>🎰 {t.farmSpinning}</h3>
+      <div className="spin-box" ref={box}>
+        {reels.map((items, i) => (
+          <div key={i} className={`spin-row ${landed > i ? `landed r-${seeds[i].rarity}` : ''}`}>
+            <div className="spin-track" ref={(el) => void (tracks.current[i] = el)}>
+              {items.map((s, j) => (
+                <div key={j} className={`spin-item r-${s.rarity} ${j === cfg.win ? 'win' : ''}`}>
+                  <SeedPacket species={s.species} color={s.color} rarity={s.rarity} size={cfg.packet} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <i className="spin-marker" aria-hidden />
+      </div>
+      {seeds.length === 1 && (
+        <p className={`spin-name ${landed ? `on r-${seeds[0].rarity}` : ''}`}>
+          <b className="r-name">{RARITY_NAME[seeds[0].rarity][lang]}</b> · {plantName(seeds[0], lang)}
+        </p>
+      )}
+      <div className="action-row">
+        <button
+          className="btn ghost"
+          aria-pressed={!muted}
+          title={muted ? t.farmSoundOn : t.farmSoundOff}
+          onClick={() => {
+            localStorage.setItem(MUTE_KEY, muted ? '0' : '1');
+            setMuted(!muted);
+          }}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
+        <button className="btn ghost" onClick={onDone}>
+          ⏭ {t.farmSkip}
+        </button>
+      </div>
     </div>
   );
 }
@@ -340,10 +549,11 @@ function Potted({ crop, size }: { crop: Crop; size: number }) {
   );
 }
 
-function Showcase({ crops, lang, onOpen }: { crops: Crop[]; lang: Lang; onOpen: (c: Crop) => void }) {
+/** The showcase, or the storehouse: plants on shelves, best first. */
+function Showcase({ crops, empty, lang, onOpen }: { crops: Crop[]; empty: string; lang: Lang; onOpen: (c: Crop) => void }) {
   const { t } = useT();
   const sorted = useMemo(() => [...crops].sort((a, b) => rank(b.rarity) - rank(a.rarity) || b.harvestedAt - a.harvestedAt), [crops]);
-  if (!sorted.length) return <p className="muted small">{t.farmShowcaseEmpty}</p>;
+  if (!sorted.length) return <p className="muted small">{empty}</p>;
   return (
     <div className="showcase">
       {sorted.map((c) => (

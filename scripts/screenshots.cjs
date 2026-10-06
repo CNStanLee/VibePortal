@@ -28,7 +28,7 @@ app.whenReady().then(async () => {
     p.destroy();
     prepared = lang + theme;
   };
-  const shoot = async ({ name, hash = '', width = 1440, height = 900, lang = 'en', theme, js, clip, bg }) => {
+  const shoot = async ({ name, hash = '', width = 1440, height = 900, lang = 'en', theme, js, wait: after = 1200, clip, bg }) => {
     const w = new BrowserWindow({ width, height, show: false, webPreferences: { offscreen: true } });
     // file:// loads right after another navigation are occasionally aborted: retry
     const load = async (u) => {
@@ -53,7 +53,7 @@ app.whenReady().then(async () => {
     }
     if (js) {
       await w.webContents.executeJavaScript(js);
-      await wait(1200);
+      await wait(after);
     }
     const rect = clip ? await w.webContents.executeJavaScript(clip) : undefined;
     const img = await w.webContents.capturePage(rect);
@@ -71,6 +71,12 @@ app.whenReady().then(async () => {
     await shoot({ name: `tasks${sfx}`, lang, js: expandFirstTask });
     await shoot({ name: `overview${sfx}`, hash: '/overview', lang });
     await shoot({ name: `resources${sfx}`, hash: '/resources', lang, theme: 'dark' });
+    // the farm down to the showcase (the farmer profile below is a form)
+    await shoot({ name: `farm${sfx}`, hash: '/farm', lang, height: 1500, clip: `(() => { const r = document.querySelectorAll('.farm > section')[2].getBoundingClientRect(); return { x: 0, y: 0, width: 1440, height: Math.ceil(r.bottom + 16) }; })()` });
+    // a ten-draw on the reel, just after the last row stopped
+    await shoot({ name: `farm-spin${sfx}`, hash: '/farm', lang, width: 760, height: 900, js: `document.querySelector('.farm-ten').click(); 1`, wait: 6300, clip: box('.modal', 0) });
+    // the share card, as it goes out on LinkedIn / X / a README
+    await shoot({ name: `farm-card${sfx}`, hash: '/farm', lang, js: `document.querySelector('.social-card-preview').scrollIntoView({ block: 'center' }); 1`, wait: 900, clip: box('.social-card-preview svg', 0) });
     // the pet stage on its own, as it floats on the desktop
     await shoot({ name: `pets${sfx}`, hash: '/pet', lang, width: 1100, height: 520, bg: '#e9e4dc', clip: box('.pet-stage', 20) });
     for (const [n, h] of [

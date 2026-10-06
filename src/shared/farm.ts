@@ -73,6 +73,7 @@ export const PITY = 80;
 export const PLOTS = 9;
 const MAX_SEEDS = 300;
 const MAX_CROPS = 400;
+const MAX_STORED = 2000;
 /** chance a harvest comes out one quality better than its seed */
 export const MUTATION = 0.08;
 /** ...but a legendary only turns mythic this rarely */
@@ -111,7 +112,10 @@ export interface FarmState {
   pity: number;
   seeds: Seed[];
   plots: Plot[];
+  /** the showcase */
   crops: Crop[];
+  /** plants taken off the showcase, kept in the storehouse */
+  stored: Crop[];
 }
 
 export interface FarmView extends FarmState {
@@ -128,7 +132,7 @@ export class FarmError extends Error {
 }
 
 export function newFarm(today: string): FarmState {
-  return { v: 1, startDate: today, days: {}, spentTokens: 0, draws: 0, pity: 0, seeds: [], plots: emptyPlots(), crops: [] };
+  return { v: 1, startDate: today, days: {}, spentTokens: 0, draws: 0, pity: 0, seeds: [], plots: emptyPlots(), crops: [], stored: [] };
 }
 
 const emptyPlots = (): Plot[] => Array.from({ length: PLOTS }, () => ({}));
@@ -146,6 +150,7 @@ export function normalizeFarm(s: Partial<FarmState> | null | undefined, today: s
     days: s.days && typeof s.days === 'object' ? s.days : {},
     seeds: Array.isArray(s.seeds) ? s.seeds : [],
     crops: Array.isArray(s.crops) ? s.crops : [],
+    stored: Array.isArray(s.stored) ? s.stored : [],
     plots,
   };
 }
@@ -236,7 +241,7 @@ export function harvest(s: FarmState, plot: number, now = Date.now(), rnd: () =>
   const p = plotAt(s, plot);
   if (!p.seed || !p.readyAt) throw new FarmError('nothing grows there');
   if (now < p.readyAt) throw new FarmError('not ripe yet');
-  if (s.crops.length >= MAX_CROPS) throw new FarmError('the showcase is full — give some plants away first');
+  if (s.crops.length >= MAX_CROPS) throw new FarmError('the showcase is full — move some plants to the storehouse first');
   const i = RARITIES.indexOf(p.seed.rarity);
   const up = RARITIES[i + 1];
   const mutated = !!up && rnd() < (up === 'mythic' ? MYTHIC_MUTATION : MUTATION);
@@ -265,9 +270,30 @@ export function uproot(s: FarmState, plot: number) {
   s.plots[plot] = {};
 }
 
+/** Takes a plant off the showcase into the storehouse. */
+export function storeCrop(s: FarmState, cropId: string) {
+  const i = s.crops.findIndex((c) => c.id === cropId);
+  if (i < 0) throw new FarmError('no such plant on the showcase');
+  if (s.stored.length >= MAX_STORED) throw new FarmError('the storehouse is full — give some plants away first');
+  s.stored.push(...s.crops.splice(i, 1));
+}
+
+/** Puts a plant from the storehouse back on the showcase. */
+export function displayCrop(s: FarmState, cropId: string) {
+  const i = s.stored.findIndex((c) => c.id === cropId);
+  if (i < 0) throw new FarmError('no such plant in the storehouse');
+  if (s.crops.length >= MAX_CROPS) throw new FarmError('the showcase is full — move some plants to the storehouse first');
+  s.crops.push(...s.stored.splice(i, 1));
+}
+
+/** Gives a plant away for good. */
 export function discardCrop(s: FarmState, cropId: string) {
   s.crops = s.crops.filter((c) => c.id !== cropId);
+  s.stored = s.stored.filter((c) => c.id !== cropId);
 }
+
+/** Every plant you own: the showcase and the storehouse. */
+export const allCrops = (s: Pick<FarmState, 'crops' | 'stored'>): Crop[] => [...s.crops, ...s.stored];
 
 export function speciesOf(id: string): Species {
   return SPECIES.find((x) => x.id === id) ?? SPECIES[0];

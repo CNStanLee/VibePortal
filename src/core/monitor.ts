@@ -1,3 +1,4 @@
+import { TaskArchive } from './archive';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { ClaudeLocalCollector } from './collectors/claudeLocal';
@@ -39,6 +40,7 @@ export class Monitor extends EventEmitter {
   readonly remotes = new RemoteHosts();
   readonly actions: ActionRunner;
   readonly resources = new ResourceMonitor();
+  readonly archive = new TaskArchive();
   /** permission prompts of background Claude runs, answered in the UI */
   readonly permissions = new PermissionBroker((p) => {
     if (p) {
@@ -447,7 +449,8 @@ export class Monitor extends EventEmitter {
       ...this.codex.tasks(this.codex.readTitles(c.codexDir)),
       ...this.tasks.customTasks(),
     ]);
-    const tasks = [...local, ...this.remotes.tasks(c.hosts)]
+    const tasks = this.archive
+      .mark([...local, ...this.remotes.tasks(c.hosts)])
       .map((t) => {
         const f = this.finishedAt.get(t.id);
         return f ? { ...t, finishedAt: new Date(f).toISOString() } : t;
