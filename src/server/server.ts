@@ -13,6 +13,7 @@ import { importGithubProfile } from '../core/githubProfile';
 import { farmCardSvg } from '../shared/farmCard';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
 import { WebPush } from '../core/webpush';
+import { isDir } from '../core/projects';
 
 export interface ServerOptions {
   monitor: Monitor;
@@ -321,6 +322,22 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       // ── new tasks ─────────────────────────────────────────────────────────
       if (p === '/api/launch/options' && req.method === 'GET') return json(res, 200, monitor.launchOptions());
       if (p === '/api/launch' && req.method === 'POST') return json(res, 200, monitor.startTask(await readJson(req)));
+
+      // ── the office: agent teams ───────────────────────────────────────────
+      if (p === '/api/office' && req.method === 'GET') return json(res, 200, monitor.office.view());
+      if (p === '/api/office/teams' && req.method === 'POST') return json(res, 200, monitor.office.saveTeam(await readJson(req)));
+      if (p === '/api/office/plan' && req.method === 'POST') {
+        const r = await monitor.planTeam(await readJson(req)).catch((e: Error & { status?: number }) => e);
+        return r instanceof Error ? json(res, r.status ?? 500, { error: r.message }) : json(res, 200, r);
+      }
+      const ot = /^\/api\/office\/teams\/([\w-]{1,40})(\/run)?$/.exec(p);
+      if (ot && !ot[2] && req.method === 'DELETE') {
+        monitor.office.deleteTeam(ot[1]);
+        return json(res, 200, { ok: true });
+      }
+      if (ot?.[2] && req.method === 'POST') return json(res, 200, monitor.office.startRun(ot[1], (d) => path.isAbsolute(d) && isDir(d)));
+      const orun = /^\/api\/office\/runs\/([\w-]{1,40})\/stop$/.exec(p);
+      if (orun && req.method === 'POST') return json(res, 200, monitor.office.stopRun(orun[1]));
 
       // ── skills ────────────────────────────────────────────────────────────
       if (p === '/api/skills') {

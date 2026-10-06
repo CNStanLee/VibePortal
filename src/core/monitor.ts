@@ -1,5 +1,6 @@
 import { TaskArchive } from './archive';
 import { SkillGraphStore } from './skillGraph';
+import { Office, parsePlan, planPrompt } from './office';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { ClaudeLocalCollector } from './collectors/claudeLocal';
@@ -43,6 +44,8 @@ export class Monitor extends EventEmitter {
   readonly resources = new ResourceMonitor();
   readonly archive = new TaskArchive();
   readonly skillGraph = new SkillGraphStore();
+  /** agent teams; their desks run as background runs */
+  readonly office = new Office();
   /** permission prompts of background Claude runs, answered in the UI */
   readonly permissions = new PermissionBroker((p) => {
     if (p) {
@@ -85,12 +88,27 @@ export class Monitor extends EventEmitter {
     this.codex.activity.onWrite = (f, cwd) => this.skills.noteWrite(f, { cwd, agent: 'codex' });
     this.actions = new ActionRunner((job) => {
       this.tasks.upsertDispatch(job, this.dispatchProvider.get(job.id));
+      this.office.onJob(job);
       if (job.state !== 'running' && this.followUps.has(job.id)) this.runFollowUp(job.id);
       this.poke();
       // a finished run: read the tail of its transcript now rather than at the next poll
       if (job.state !== 'running') void this.tick();
     });
     this.loadFollowUps();
+    this.office.attach({
+      start: (req) => this.startTask(req),
+      stop: (jobId) => this.actions.stop(jobId),
+      report: (taskId) => {
+        const t = this.findTask(taskId);
+        if (!t) return undefined;
+        const ctx = this.taskContext(t);
+        return ctx.lastReply ?? ctx.output?.trim();
+      },
+      jobs: () => this.actions.jobList(),
+      changed: () => this.poke(),
+      judge: (prompt, model) => this.actions.ask(prompt, { claudeBin: this.cfg.claudeBin, model, timeoutMs: 120_000 }),
+    });
+    this.permissions.gate = (jobId, tool, input) => this.office.decide(jobId, tool, input);
     // runs that kept going while VibePortal was down (they live in their own process group)
     this.actions.adopt();
   }
@@ -187,6 +205,18 @@ export class Monitor extends EventEmitter {
   organizeSkills() {
     const model = this.cfg.suggestModel;
     return this.skillGraph.organize(this.skills.list(true), (prompt) => this.actions.ask(prompt, { claudeBin: this.cfg.claudeBin, model }), model);
+  }
+
+  /** A team for a goal, broken down top-down by the small model, laid out and saved. */
+  async planTeam(body: any) {
+    const goal = typeof body?.goal === 'string' ? body.goal.trim().slice(0, 8000) : '';
+    if (!goal) throw httpError(400, 'describe the goal first');
+    const budget = Number(body?.budget) > 0 ? Math.min(10_000, Number(body.budget)) : 5;
+    const lang = body?.lang === 'zh' ? 'zh' : 'en';
+    const c = this.cfg;
+    const prompt = planPrompt(goal, { budget, lang, claude: !!resolveBin('claude', c.claudeBin), codex: !!resolveBin('codex', c.codexBin) });
+    const team = parsePlan(await this.actions.ask(prompt, { claudeBin: c.claudeBin, model: c.suggestModel }), goal, budget);
+    return this.office.saveTeam({ ...team, ...(typeof body?.id === 'string' ? { id: body.id } : {}), cwd: body?.cwd });
   }
 
   async suggest(task: TaskInfo, lang: 'zh' | 'en') {
@@ -466,6 +496,7 @@ export class Monitor extends EventEmitter {
       .sort((a, b) => stateRank(a.state) - stateRank(b.state) || b.updatedAt.localeCompare(a.updatedAt));
 
     this.detectTransitions(tasks, [claude, openai]);
+    this.office.observe(tasks);
     const providers = [claude, openai];
     this.snapshot = {
       generatedAt: new Date().toISOString(),
@@ -482,6 +513,7 @@ export class Monitor extends EventEmitter {
       remotes: this.remotes.snapshots(c.hosts),
       official: this.official.state(),
       permissions: this.permissions.list(),
+      office: this.office.live(),
     };
     this.emit('snapshot', this.snapshot);
   }

@@ -24,6 +24,9 @@ export class PermissionBroker {
   /** tools allowed "for the rest of this run", per job */
   private always = new Map<string, Set<string>>();
 
+  /** answers a request before it reaches you (an office desk's permissions and its supervisors); undefined = ask you */
+  gate?: (jobId: string, tool: string, input: unknown) => Promise<Decision | undefined>;
+
   constructor(private onChange: (p?: PendingPermission) => void) {}
 
   list(): PendingPermission[] {
@@ -35,8 +38,10 @@ export class PermissionBroker {
   }
 
   /** Called by the MCP tool; resolves once someone answers (or after the timeout: deny). */
-  request(jobId: string, tool: string, input: unknown): Promise<Decision> {
-    if (this.always.get(jobId)?.has(tool)) return Promise.resolve({ behavior: 'allow' });
+  async request(jobId: string, tool: string, input: unknown): Promise<Decision> {
+    if (this.always.get(jobId)?.has(tool)) return { behavior: 'allow' };
+    const gated = await this.gate?.(jobId, tool, input).catch(() => undefined);
+    if (gated) return gated;
     return new Promise((resolve) => {
       const id = crypto.randomBytes(6).toString('hex');
       const p: Pending = {

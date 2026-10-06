@@ -1,4 +1,5 @@
 // Types shared by the Node core, the HTTP server and the React UI.
+import type { OfficeRun } from './office';
 
 export type Provider = 'claude' | 'openai';
 
@@ -290,6 +291,8 @@ export interface Snapshot {
   official?: OfficialRemoteState;
   /** permission requests of background runs waiting for an answer */
   permissions?: PendingPermission[];
+  /** office team runs going now or just ended */
+  office?: OfficeRun[];
 }
 
 export interface OfficialRemoteState {

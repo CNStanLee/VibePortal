@@ -1,6 +1,7 @@
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
 import { discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
+import { ROLE_GRANTS, autoLayout, cascadeGrants, childrenOf, costPerToken, estimateNode, newOfficeId, type OfficeNode, type OfficeRun, type OfficeTeam, type OfficeView } from '../shared/office';
 import { cleanProfile, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm } from '../shared/farmSocial';
 import type {
   DailyUsage,
@@ -413,6 +414,7 @@ export const demoSnapshot = () => (snap ??= snapshot());
 export function demoCall(method: string, path: string, body?: unknown): unknown {
   const p = path.replace(/\?.*$/, '');
   if (p === 'api/farm' || p.startsWith('api/farm/')) return demoFarmCall(p, body);
+  if (p === 'api/office' || p.startsWith('api/office/')) return demoOfficeCall(method, p, body);
   if (p === 'api/snapshot' || p === 'api/refresh') return demoSnapshot();
   if (p === 'api/info') return info;
   if (p === 'api/settings') return settings;
@@ -601,3 +603,127 @@ function demoSkillGraph(): SkillGraph {
   };
 }
 
+
+// ── the office, in memory: a sample team, and runs that play out on the clock ──
+const zhDemo = () => (localStorage.getItem('vp.lang') ?? navigator.language).startsWith('zh');
+function demoTeam(goal?: string, id = 'demo-team'): OfficeTeam {
+  const zh = zhDemo();
+  const n = (key: string, name: string, role: OfficeNode['role'], agent: OfficeNode['agent'], model: string, effort: string, task: string, parent?: string): OfficeNode => ({ id: key, name, role, agent, ...(model ? { model } : {}), effort, task, ...(parent ? { parent } : {}), grants: ROLE_GRANTS[role], x: 0, y: 0 });
+  const nodes = [
+    n('lead', zh ? '总负责人' : 'Lead', 'lead', 'claude', 'opus', 'high', zh ? '整合各组成果，检查整体是否达成目标，写最终说明。' : 'Bring the pieces together, check the goal is met, write the summary.'),
+    n('ui', zh ? '界面组' : 'UI', 'manager', 'claude', 'sonnet', 'medium', zh ? '合并界面相关改动并复查。' : 'Merge and recheck the UI changes.', 'lead'),
+    n('css', zh ? '样式工程师' : 'Styles', 'engineer', 'claude', 'sonnet', 'medium', zh ? '为设置页加入深色主题变量和切换。' : 'Add dark theme variables and the toggle to the settings page.', 'ui'),
+    n('state', zh ? '状态工程师' : 'State', 'engineer', 'codex', '', 'medium', zh ? '把主题偏好存到 localStorage 并在启动时读取。' : 'Persist the theme choice in localStorage and read it at start.', 'ui'),
+    n('test', zh ? '测试员' : 'Tests', 'tester', 'codex', '', 'low', zh ? '为主题切换写测试并运行。' : 'Write and run tests for the theme toggle.', 'lead'),
+    n('docs', zh ? '文档员' : 'Docs', 'writer', 'claude', 'haiku', 'low', zh ? '更新 README 和更新日志。' : 'Update the README and the changelog.', 'lead'),
+  ];
+  // the styles engineer starts without "run commands": it will ask for it
+  nodes[2].grants = ['edit'];
+  return { id, name: zh ? '深色模式小组' : 'Dark mode squad', goal: goal ?? (zh ? '给设置页加上深色模式，附带测试和更新日志' : 'Add dark mode to the settings page, with tests and a changelog entry'), budget: 6, cwd: '/home/you/code/vibeportal', nodes: cascadeGrants(autoLayout(nodes)), updatedAt: new Date().toISOString() };
+}
+let demoOffice: OfficeView | undefined;
+/** When each desk of a demo run starts and ends: people first, their supervisor once all are done. */
+function demoTimes(run: OfficeRun): Map<string, [number, number]> {
+  const t0 = Date.parse(run.startedAt);
+  const times = new Map<string, [number, number]>();
+  const of = (n: OfficeNode): [number, number] => {
+    const known = times.get(n.id);
+    if (known) return known;
+    const kids = childrenOf(run.nodes, n.id).map(of);
+    const start = kids.length ? Math.max(...kids.map((k) => k[1])) : t0 + 600;
+    const r: [number, number] = [start, start + 5000 + (n.task.length % 7) * 900];
+    times.set(n.id, r);
+    return r;
+  };
+  run.nodes.forEach(of);
+  return times;
+}
+const DEMO_VERBS = [
+  ['read', 'src/ui/components/Settings.tsx'],
+  ['search', 'theme'],
+  ['edit', 'src/ui/styles.css'],
+  ['run', 'npm test'],
+  ['write', 'CHANGELOG.md'],
+] as const;
+function demoAdvance(run: OfficeRun, now = Date.now()) {
+  if (run.state !== 'running') return;
+  const zh = zhDemo();
+  const times = demoTimes(run);
+  let spent = 0;
+  for (const n of run.nodes) {
+    const [a, b] = times.get(n.id)!;
+    const p = run.progress[n.id];
+    const total = estimateNode(run.nodes, n).tokens;
+    if (now < a) Object.assign(p, { state: 'waiting' });
+    else if (now < b) {
+      const v = DEMO_VERBS[Math.floor((now - a) / 1300) % DEMO_VERBS.length];
+      Object.assign(p, { state: 'running', startedAt: new Date(a).toISOString(), verb: v[0], doing: v[1], tokens: Math.round((total * (now - a)) / (b - a)), taskId: `dispatch:demo-${n.id}` });
+    } else
+      Object.assign(p, {
+        state: 'done',
+        startedAt: new Date(a).toISOString(),
+        endedAt: new Date(b).toISOString(),
+        verb: undefined,
+        doing: undefined,
+        tokens: total,
+        report: zh ? `${n.name}：已完成「${n.task}」。改动了 2 个文件，测试通过，没有遗留问题。` : `${n.name}: done — ${n.task} Two files changed, tests pass, nothing left open.`,
+      });
+    // the styles engineer asks its manager to run the dev server halfway through, and gets it
+    if (n.id === 'css' && now > a + (b - a) * 0.3) {
+      const decided = now > a + (b - a) * 0.65;
+      p.asks = [
+        {
+          id: 'demo-ask',
+          grant: 'run',
+          tool: 'Bash',
+          summary: 'npm run dev -- --port 5173',
+          at: new Date(a + (b - a) * 0.3).toISOString(),
+          to: 'ui',
+          state: decided ? 'allowed' : 'reviewing',
+          ...(decided ? { reason: zh ? '需要启动开发服务器检查深色效果，只在本地，安全。' : 'It needs the dev server to check the dark theme; local only, safe.', decidedAt: new Date(a + (b - a) * 0.65).toISOString() } : {}),
+        },
+      ];
+      p.grants = decided ? [...n.grants, 'run'] : n.grants;
+    }
+    p.cost = (p.tokens ?? 0) * costPerToken(n.agent, n.model);
+    spent += p.cost;
+  }
+  run.spent = Math.round(spent * 1000) / 1000;
+  if (Object.values(run.progress).every((p) => p.state === 'done')) Object.assign(run, { state: 'done', endedAt: new Date(Math.max(...[...times.values()].map((x) => x[1]))).toISOString() });
+}
+function demoOfficeCall(method: string, p: string, body: unknown): unknown {
+  demoOffice ??= { teams: [demoTeam()], runs: [] };
+  const o = demoOffice;
+  o.runs.forEach((r) => demoAdvance(r));
+  if (p === 'api/office') return o;
+  if (p === 'api/office/teams' && method === 'POST') {
+    const team = { ...(body as OfficeTeam), updatedAt: new Date().toISOString() };
+    o.teams = o.teams.some((x) => x.id === team.id) ? o.teams.map((x) => (x.id === team.id ? team : x)) : [...o.teams, team];
+    return team;
+  }
+  if (p === 'api/office/plan') {
+    const b = body as { id?: string; goal: string; budget: number; cwd?: string };
+    const team = { ...demoTeam(b.goal, b.id ?? newOfficeId('t')), budget: b.budget, cwd: b.cwd ?? '/home/you/code/vibeportal' };
+    o.teams = [...o.teams.filter((x) => x.id !== team.id), team];
+    return new Promise((resolve) => setTimeout(() => resolve(team), 1400));
+  }
+  const tm = /^api\/office\/teams\/([\w-]+)(\/run)?$/.exec(p);
+  if (tm && method === 'DELETE') {
+    o.teams = o.teams.filter((x) => x.id !== tm[1]);
+    return { ok: true };
+  }
+  if (tm?.[2]) {
+    const team = o.teams.find((x) => x.id === tm[1])!;
+    const run: OfficeRun = { id: newOfficeId('r'), teamId: team.id, teamName: team.name, state: 'running', startedAt: new Date().toISOString(), budget: team.budget, spent: 0, nodes: team.nodes, progress: Object.fromEntries(team.nodes.map((n) => [n.id, { state: 'waiting' as const, grants: [...n.grants] }])) };
+    o.runs.push(run);
+    return run;
+  }
+  const rm = /^api\/office\/runs\/([\w-]+)\/stop$/.exec(p);
+  if (rm) {
+    const run = o.runs.find((r) => r.id === rm[1])!;
+    for (const x of Object.values(run.progress)) if (x.state === 'waiting' || x.state === 'running') x.state = x.state === 'running' ? 'failed' : 'skipped';
+    Object.assign(run, { state: 'stopped', endedAt: new Date().toISOString() });
+    return run;
+  }
+  return { ok: true };
+}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
 import type { FarmView } from '../shared/farm';
 import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
+import type { OfficeRun, OfficeTeam, OfficeView } from '../shared/office';
 import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';
 
 export interface Notice {
@@ -219,6 +220,13 @@ export const api = {
   farmFriendAdd: (link: string) => call<FriendFarm[]>('POST', 'api/farm/friends', { link }),
   farmFriendRemove: (url: string) => call<FriendFarm[]>('DELETE', 'api/farm/friends', { url }),
   farmFriendWater: (url: string) => call<{ friend: FriendFarm; result: unknown }>('POST', 'api/farm/friends/water', { url }),
+  office: () => call<OfficeView>('GET', 'api/office'),
+  officeSave: (team: OfficeTeam) => call<OfficeTeam>('POST', 'api/office/teams', team),
+  officeDelete: (id: string) => call<{ ok: boolean }>('DELETE', `api/office/teams/${encodeURIComponent(id)}`),
+  /** a team for a goal, broken down by the small model (takes a minute or so) */
+  officePlan: (body: { id?: string; goal: string; budget: number; lang: string; cwd?: string; permission?: string }) => call<OfficeTeam>('POST', 'api/office/plan', body),
+  officeRun: (teamId: string) => call<OfficeRun>('POST', `api/office/teams/${encodeURIComponent(teamId)}/run`, {}),
+  officeStop: (runId: string) => call<OfficeRun>('POST', `api/office/runs/${encodeURIComponent(runId)}/stop`, {}),
   launchOptions: () => call<LaunchOptions>('GET', 'api/launch/options'),
   launch: (r: LaunchRequest) => call<{ jobId: string; taskId: string }>('POST', 'api/launch', r),
   skills: (fresh = false) => call<SkillInfo[]>('GET', `api/skills${fresh ? '?fresh=1' : ''}`),

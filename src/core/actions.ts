@@ -365,6 +365,18 @@ export class ActionRunner {
     return [...this.jobs.values()].map(({ id, agent, cwd, startedAt, pid, running, sessionId }) => ({ id, agent, cwd, startedAt, pid, running, sessionId }));
   }
 
+  /** Ends a run (its whole process group): the office stops desks that went over budget. */
+  stop(id: string) {
+    const j = this.jobs.get(id);
+    if (!j?.running || !j.pid) return;
+    try {
+      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(j.pid), '/T', '/F'], { windowsHide: true }).on('error', () => {});
+      else process.kill(-j.pid, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
+  }
+
   hasRunning(): boolean {
     return this.running > 0;
   }
