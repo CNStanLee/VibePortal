@@ -1,0 +1,13 @@
+{
+  "name": "VibePortal",
+  "short_name": "VibePortal",
+  "description": "Claude & ChatGPT usage, plans and agent tasks at a glance",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#241c30",
+  "theme_color": "#241c30",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

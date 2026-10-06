@@ -1,0 +1,95 @@
+{
+  "name": "vibeportal",
+  "version": "0.1.0",
+  "description": "Cross-platform (Ubuntu / Windows / Web) monitor for Claude & ChatGPT usage, subscription plans and agent tasks, with a desktop pet.",
+  "author": "Changhong Li",
+  "license": "MIT",
+  "private": true,
+  "main": "dist/electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:ui": "vite build",
+    "build:node": "node scripts/build-node.mjs",
+    "build": "npm run build:ui && npm run build:node",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node scripts/test.mjs",
+    "serve": "npm run build && node dist/server/cli.cjs",
+    "app": "npm run build && node scripts/launch.mjs",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --publish never",
+    "dist:win": "npm run build && electron-builder --win nsis portable --publish never",
+    "start": "node scripts/launch.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "screenshots": "npm run build:ui && node scripts/launch.mjs scripts/screenshots.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
+  },
+  "build": {
+    "appId": "io.github.vibeportal",
+    "productName": "VibePortal",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json",
+      "!**/*.map",
+      "!dist/test/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "assets/icons",
+      "maintainer": "Changhong Li <lic9@tcd.ie>",
+      "synopsis": "Claude & ChatGPT usage monitor with a desktop pet",
+      "syncDesktopName": true
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "deb": {
+      "depends": [
+        "libnotify4",
+        "libxtst6",
+        "libnss3"
+      ]
+    },
+    "asarUnpack": [
+      "assets/**"
+    ]
+  },
+  "bin": {
+    "vibeportal-server": "dist/server/cli.cjs"
+  },
+  "desktopName": "vibeportal.desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CNStanLee/VibePortal.git"
+  },
+  "homepage": "https://github.com/CNStanLee/VibePortal"
+}
