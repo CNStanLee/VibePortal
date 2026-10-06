@@ -6747,3 +6747,153 @@ a.btn {
 .office-asks .ask-state {
   font-weight: 650;
 }
+
+.page-crash {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+.page-crash pre {
+  margin: 0;
+  color: var(--critical-ink);
+  white-space: pre-wrap;
+}
+
+.desk-port.top {
+  top: -9px;
+  bottom: auto;
+  border-color: var(--good);
+}
+.desk-port.top:hover {
+  background: var(--good);
+}
+
+/* office: reasoning-effort sliders and the weekly limits */
+.office-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.office-slider input[type='range'] {
+  flex: 1;
+  min-width: 60px;
+}
+.office-slider b {
+  min-width: 52px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.office-slider.compact {
+  padding: 0 6px 4px 28px;
+}
+.office-slider.compact b {
+  min-width: 46px;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.office-why {
+  margin: 0;
+}
+.office-weekly {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 4px;
+}
+.office-week {
+  --ag: var(--c-claude);
+  display: grid;
+  grid-template-columns: 150px minmax(120px, 1fr);
+  align-items: center;
+  gap: 4px 12px;
+}
+.office-week.ag-codex {
+  --ag: var(--c-openai);
+}
+.office-week > :nth-child(n + 3) {
+  grid-column: 2;
+}
+.office-week-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.office-week-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface-2);
+}
+.office-week-bar span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.wk-used {
+  left: 0;
+  border-radius: 5px 0 0 5px;
+  background: color-mix(in srgb, var(--ag) 35%, var(--surface-2));
+}
+.wk-est {
+  background: repeating-linear-gradient(45deg, var(--ag) 0 4px, color-mix(in srgb, var(--ag) 55%, transparent) 4px 8px);
+  transition: width 0.4s var(--ease-out);
+}
+.wk-est.over {
+  background: repeating-linear-gradient(45deg, var(--critical) 0 4px, color-mix(in srgb, var(--critical) 55%, transparent) 4px 8px);
+}
+.wk-spent {
+  top: 3px !important;
+  bottom: 3px !important;
+  border-radius: 2px;
+  background: var(--ink);
+  opacity: 0.75;
+}
+.wk-cap {
+  top: -4px !important;
+  bottom: -4px !important;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--critical);
+}
+.office-week-text {
+  color: var(--ink-2);
+}
+.office-week-text b.warn {
+  color: var(--critical-ink);
+}
+.office-week-pct {
+  width: 64px;
+  margin: 0 2px 0 4px;
+  padding: 2px 6px;
+}
+.office-tune {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 24px;
+  margin: 12px 0 4px;
+}
+.office-tune-effort {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 320px;
+  max-width: 460px;
+}
+.office-tune-assign {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 320px;
+  justify-items: start;
+}
+@media (max-width: 560px) {
+  .office-week {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .office-week > :nth-child(n + 3) {
+    grid-column: 1;
+  }
+}

@@ -13,6 +13,21 @@ import {
   estimateTeam,
   fitToBudget,
   newOfficeId,
+  normalizeView,
+  EFFORT_LADDER,
+  assignModels,
+  difficultyOf,
+  effortLevel,
+  effortSpan,
+  estimateByAgent,
+  shiftEfforts,
+  teamEffort,
+  usdToWeeklyPct,
+  weeklyPctToUsd,
+  weeklyRates,
+  roughRate,
+  withEffortLevel,
+  type WeeklyRate,
   wouldCycle,
   type OfficeAsk,
   type OfficeGrant,
@@ -114,14 +129,14 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   const [busy, setBusy] = useState<'' | 'plan' | 'run' | 'stop'>('');
   const [zoom, setZoom] = useState(1);
   const [now, setNow] = useState(Date.now());
-  const [link, setLink] = useState<{ from: string; x: number; y: number } | null>(null);
+  const [link, setLink] = useState<{ from: string; x: number; y: number; up?: boolean } | null>(null);
   const [ghost, setGhost] = useState<{ role: OfficeRole; x: number; y: number } | null>(null);
   const planeRef = useRef<HTMLDivElement>(null);
   const floorRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    api.office().then(setView).catch((e) => setError((e as Error).message));
+    api.office().then((v) => setView(normalizeView(v))).catch((e) => setError((e as Error).message));
     cachedLaunchOptions().then(setOpts).catch(() => {});
   }, []);
 
@@ -154,12 +169,12 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   // a desk finished: fetch the full reports
   const sig = (snapshot.office ?? []).map((r) => `${r.id}:${r.state}:${Object.values(r.progress).map((p) => p.state[0]).join('')}`).join('|');
   useEffect(() => {
-    if (sig) api.office().then(setView).catch(() => {});
+    if (sig) api.office().then((v) => setView(normalizeView(v))).catch(() => {});
   }, [sig]);
   // the demo has no snapshot stream for the office: ask now and then
   useEffect(() => {
     if (!isDemo() || !active) return;
-    const id = window.setInterval(() => api.office().then(setView).catch(() => {}), 1200);
+    const id = window.setInterval(() => api.office().then((v) => setView(normalizeView(v))).catch(() => {}), 1200);
     return () => clearInterval(id);
   }, [active]);
   // couriers and timers run on the clock
@@ -204,6 +219,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   const nodes = team?.nodes ?? [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const est = useMemo(() => estimateTeam(nodes), [nodes]);
+  const rates = useMemo(() => weeklyRates(snapshot.providers), [snapshot.providers]);
   const sel = selected ? byId.get(selected) : undefined;
   const locked = active;
   /** permission prompts a working desk is stuck on */
@@ -281,21 +297,29 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
       },
     );
   };
-  const onPortDown = (e: React.PointerEvent, from: string) => {
+  /**
+   * The dot under a desk hands work down: onto a desk = it becomes a subordinate, onto the
+   * floor = a new subordinate. The dot on top reports up: onto a desk = that one becomes its
+   * supervisor, onto the floor = a new manager is put in between (one more level).
+   */
+  const onPortDown = (e: React.PointerEvent, from: string, up = false) => {
     if (locked) return;
     e.preventDefault();
     e.stopPropagation();
-    setLink({ from, ...toPlane(e) });
+    setLink({ from, up, ...toPlane(e) });
     track(
-      (ev) => setLink({ from, ...toPlane(ev) }),
+      (ev) => setLink({ from, up, ...toPlane(ev) }),
       (ev) => {
         setLink(null);
         const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-desk]')?.dataset.desk;
-        if (target && target !== from) setParent(target, from);
-        else if (!target && overPlane(ev)) {
-          const p = toPlane(ev);
-          addNode('engineer', { x: p.x - DESK_W / 2, y: p.y - 20 }, from);
-        }
+        if (target && target !== from) return up ? setParent(from, target) : setParent(target, from);
+        if (target || !overPlane(ev)) return;
+        const p = toPlane(ev);
+        if (!up) return addNode('engineer', { x: p.x - DESK_W / 2, y: p.y - 20 }, from);
+        const child = byId.get(from);
+        const mgr: OfficeNode = { id: newOfficeId('n'), name: t.roleManager, role: 'manager', agent: 'claude', ...ROLE_DEFAULTS.manager, grants: ROLE_GRANTS.manager, task: '', ...(child?.parent ? { parent: child.parent } : {}), x: Math.max(8, Math.round(p.x - DESK_W / 2)), y: Math.max(8, Math.round(p.y - DESK_H + 20)) };
+        update((x) => ({ ...x, nodes: [...x.nodes.map((n) => (n.id === from ? { ...n, parent: mgr.id } : n)), mgr] }));
+        setSelected(mgr.id);
       },
     );
   };
@@ -576,6 +600,37 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
             {t.officeBudgetShort} <b>{fmtUsd(team.budget)}</b>
           </span>
         </div>
+        <WeeklyLimits nodes={nodes} rates={rates} budget={team.budget} run={showRun ? run : undefined} locked={locked} onBudget={(b) => update((x) => ({ ...x, budget: Math.max(0.1, Math.round(b * 100) / 100) }))} />
+        <div className="office-tune">
+          <label className="office-tune-effort">
+            <span className="nt-label">{t.officeTeamEffort}</span>
+            <span className="office-slider">
+              <input
+                type="range"
+                min={0}
+                max={5}
+                step={1}
+                disabled={locked || !nodes.length}
+                value={Math.round(teamEffort(nodes))}
+                onChange={(e) => update((x) => ({ ...x, nodes: shiftEfforts(x.nodes, Number(e.target.value) - Math.round(teamEffort(x.nodes))) }))}
+                aria-label={t.officeTeamEffort}
+              />
+              <b>{EFFORT_LADDER[Math.round(teamEffort(nodes))]}</b>
+            </span>
+            <span className="muted tiny">{t.officeTeamEffortHelp}</span>
+          </label>
+          <span className="office-tune-assign">
+            <button
+              className="btn"
+              disabled={locked || !nodes.length}
+              title={t.officeAssignHelp}
+              onClick={() => update((x) => ({ ...x, nodes: assignModels(x.nodes, { rates, available: { claude: opts?.agents.claude.available ?? true, codex: opts?.agents.codex.available ?? true } }) }))}
+            >
+              ⚖ {t.officeAssign}
+            </button>
+            <span className="muted tiny">{t.officeAssignHelp}</span>
+          </span>
+        </div>
         {overBudget && !locked && (
           <div className="office-over small">
             <span>{fmt(t.officeOver, { n: fmtUsd(est.cost - team.budget) })}</span>
@@ -647,7 +702,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                       const f = byId.get(link.from);
                       if (!f) return null;
                       const x1 = f.x + DESK_W / 2;
-                      const y1 = f.y + DESK_H;
+                      const y1 = link.up ? f.y : f.y + DESK_H;
                       return <path className="edge-draft" d={`M${x1} ${y1} C${x1} ${(y1 + link.y) / 2} ${link.x} ${(y1 + link.y) / 2} ${link.x} ${link.y}`} />;
                     })()}
                 </svg>
@@ -736,7 +791,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                     linking={!!link && link.from !== n.id}
                     locked={locked}
                     onPointerDown={(e) => onDeskDown(e, n)}
-                    onPortDown={(e) => onPortDown(e, n.id)}
+                    onPortDown={(e, up) => onPortDown(e, n.id, up)}
                   />
                 ))}
 
@@ -768,7 +823,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
               onClose={() => setSelected(null)}
             />
           ) : (
-            <TeamRoster nodes={nodes} est={est.byNode} progress={progress} onPick={setSelected} kindOf={kindOf} />
+            <TeamRoster nodes={nodes} est={est.byNode} progress={progress} locked={locked} onPick={setSelected} onEffort={(id, l) => patchNode(id, { effort: withEffortLevel(byId.get(id)!, l).effort })} kindOf={kindOf} />
           )}
         </aside>
       </div>
@@ -814,7 +869,7 @@ function Desk({
   linking: boolean;
   locked: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
-  onPortDown: (e: React.PointerEvent) => void;
+  onPortDown: (e: React.PointerEvent, up?: boolean) => void;
 }) {
   const { t } = useT();
   const st = prog?.state;
@@ -908,7 +963,12 @@ function Desk({
         )}
         {st && <span className={`desk-badge b-${st}`}>{t[STATE_KEY[st]]}</span>}
       </div>
-      {!locked && <span className="desk-port" onPointerDown={onPortDown} title={t.officePortHelp} />}
+      {!locked && (
+        <>
+          <span className="desk-port top" onPointerDown={(e) => onPortDown(e, true)} title={t.officePortUpHelp} />
+          <span className="desk-port" onPointerDown={(e) => onPortDown(e)} title={t.officePortHelp} />
+        </>
+      )}
     </div>
   );
 }
@@ -944,7 +1004,6 @@ function NodeEditor({
   const { t } = useT();
   const info = opts?.agents[node.agent];
   const models = [...new Set([...(node.model ? [node.model] : []), ...(info?.models ?? (node.agent === 'claude' ? ['fable', 'opus', 'sonnet', 'haiku'] : []))])];
-  const efforts = info?.efforts ?? (node.agent === 'claude' ? ['low', 'medium', 'high', 'xhigh', 'max'] : ['minimal', 'low', 'medium', 'high', 'xhigh']);
   const bosses = nodes.filter((n) => n.id !== node.id && !wouldCycle(nodes, node.id, n.id));
   return (
     <div className="office-editor">
@@ -1009,17 +1068,18 @@ function NodeEditor({
             </select>
           </label>
           <label>
-            <span className="nt-label">{t.effort}</span>
-            <select value={node.effort ?? ''} onChange={(e) => onChange({ effort: e.target.value || undefined })}>
-              <option value="">{t.byDefault}</option>
-              {efforts.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+            <span className="nt-label">{t.officeDifficulty}</span>
+            <span className="office-slider">
+              <input type="range" min={1} max={5} step={1} value={difficultyOf(node)} onChange={(e) => onChange({ difficulty: Number(e.target.value) })} aria-label={t.officeDifficulty} />
+              <b>{difficultyOf(node)}</b>
+            </span>
           </label>
         </div>
+        <label>
+          <span className="nt-label">{t.officeEffort}</span>
+          <EffortSlider node={node} onLevel={(l) => onChange({ effort: withEffortLevel(node, l).effort })} />
+        </label>
+        {node.why && <p className="muted tiny office-why">💡 {node.why}</p>}
         <label>
           <span className="nt-label">{t.officeReportsTo}</span>
           <select value={node.parent ?? ''} onChange={(e) => onParent(e.target.value || undefined)}>
@@ -1159,7 +1219,23 @@ function PermissionAsk({ ask }: { ask: PendingPermission }) {
 }
 
 /** Nothing selected: the team at a glance, top-down. */
-function TeamRoster({ nodes, est, progress, onPick, kindOf }: { nodes: OfficeNode[]; est: Record<string, { cost: number }>; progress: Record<string, OfficeRunNode>; onPick: (id: string) => void; kindOf: (a: LaunchAgent) => MascotKind }) {
+function TeamRoster({
+  nodes,
+  est,
+  progress,
+  locked,
+  onPick,
+  onEffort,
+  kindOf,
+}: {
+  nodes: OfficeNode[];
+  est: Record<string, { cost: number }>;
+  progress: Record<string, OfficeRunNode>;
+  locked: boolean;
+  onPick: (id: string) => void;
+  onEffort: (id: string, level: number) => void;
+  kindOf: (a: LaunchAgent) => MascotKind;
+}) {
   const { t } = useT();
   const rows: { n: OfficeNode; depth: number }[] = [];
   const walk = (n: OfficeNode, depth: number, seen: Set<string>) => {
@@ -1190,11 +1266,107 @@ function TeamRoster({ nodes, est, progress, onPick, kindOf }: { nodes: OfficeNod
                   </span>
                   <span className="muted tiny office-roster-cost">≈ {fmtUsd(est[n.id]?.cost ?? 0)}</span>
                 </button>
+                <EffortSlider node={n} compact disabled={locked} onLevel={(l) => onEffort(n.id, l)} />
               </li>
             ))}
           </ul>
         </>
       )}
+    </div>
+  );
+}
+
+/** A desk's reasoning effort on one ladder (Claude: low … max, Codex: minimal … xhigh). */
+function EffortSlider({ node, onLevel, compact, disabled }: { node: OfficeNode; onLevel: (level: number) => void; compact?: boolean; disabled?: boolean }) {
+  const { t } = useT();
+  const [lo, hi] = effortSpan(node.agent);
+  const level = Math.min(hi, Math.max(lo, effortLevel(node)));
+  return (
+    <span className={`office-slider ${compact ? 'compact' : ''}`}>
+      <input type="range" min={lo} max={hi} step={1} value={level} disabled={disabled} onChange={(e) => onLevel(Number(e.target.value))} aria-label={`${node.name} · ${t.officeEffort}`} />
+      <b>{EFFORT_LADDER[level]}</b>
+    </span>
+  );
+}
+
+/**
+ * The budget, the estimate and what a run spent, as shares of Claude's and Codex's
+ * weekly limits (from this week's use: tokens per 1%). The budget can be typed as a share too.
+ */
+function WeeklyLimits({ nodes, rates, budget, run, locked, onBudget }: { nodes: OfficeNode[]; rates: Partial<Record<LaunchAgent, WeeklyRate>>; budget: number; run?: OfficeRun; locked: boolean; onBudget: (usd: number) => void }) {
+  const { t, lang } = useT();
+  const est = estimateByAgent(nodes);
+  const spentTokens: Record<LaunchAgent, number> = { claude: 0, codex: 0 };
+  for (const n of run?.nodes ?? []) spentTokens[n.agent] += run!.progress[n.id]?.tokens ?? 0;
+  const pct = (x?: number) => (x === undefined ? '—' : x < 0.1 && x > 0 ? '<0.1%' : x > 999 ? '>999%' : `${x < 10 ? x.toFixed(1) : Math.round(x)}%`);
+  return (
+    <div className="office-weekly">
+      {(['claude', 'codex'] as LaunchAgent[]).map((a) => {
+        const r = rates[a];
+        const per = r?.tokensPerPct;
+        const estPct = per ? est[a].tokens / per : undefined;
+        const budgetPct = usdToWeeklyPct(budget, a, nodes, r);
+        const spentPct = per && run ? spentTokens[a] / per : undefined;
+        const used = r?.used ?? 0;
+        const left = Math.max(0, 100 - used);
+        const tooMuch = estPct !== undefined && estPct > left;
+        return (
+          <div key={a} className={`office-week ag-${a}`}>
+            <span className="office-week-name">
+              {a === 'claude' ? <ClaudeMark size={12} /> : <CodexMark size={12} />} {fmt(t.officeWeekOf, { name: a === 'claude' ? 'Claude' : 'Codex' })}
+            </span>
+            {!r ? (
+              <span className="muted tiny">{t.officeWeekUnknown}</span>
+            ) : (
+              <>
+                <div className="office-week-bar" role="img" aria-label={`${pct(used)} + ${pct(estPct)}`}>
+                  <span className="wk-used" style={{ width: `${Math.min(100, used)}%` }} />
+                  {estPct !== undefined && <span className={`wk-est ${tooMuch ? 'over' : ''}`} style={{ left: `${Math.min(100, used)}%`, width: `${Math.min(100 - Math.min(100, used), estPct)}%` }} />}
+                  {spentPct !== undefined && <span className="wk-spent" style={{ left: `${Math.min(100, used)}%`, width: `${Math.min(100 - Math.min(100, used), spentPct)}%` }} />}
+                  {budgetPct !== undefined && <span className="wk-cap" style={{ left: `${Math.min(100, used + budgetPct)}%` }} title={`${t.officeBudgetShort} ${pct(budgetPct)}`} />}
+                </div>
+                <span className="office-week-text small">
+                  {fmt(t.officeWeekUsed, { n: pct(used) })}
+                  {r.resetsAt ? ` · ${fmt(t.officeWeekResets, { d: new Date(r.resetsAt).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })}` : ''}
+                  {per ? (
+                    <>
+                      {' · '}
+                      {t.officeEstimate} <b className={tooMuch ? 'warn' : ''}>+{pct(estPct)}</b>
+                      {spentPct !== undefined && (
+                        <>
+                          {' · '}
+                          {t.officeSpent} <b>{pct(spentPct)}</b>
+                        </>
+                      )}
+                      {' · '}
+                      {t.officeBudgetShort} ≈
+                      <input
+                        className="office-week-pct"
+                        type="number"
+                        min={0.1}
+                        step={0.5}
+                        disabled={locked}
+                        value={budgetPct === undefined ? '' : Math.round(budgetPct * 10) / 10}
+                        onChange={(e) => {
+                          const usd = weeklyPctToUsd(Number(e.target.value), a, nodes, r);
+                          if (usd && usd > 0) onBudget(usd);
+                        }}
+                        aria-label={fmt(t.officeWeekOf, { name: a })}
+                      />
+                      %
+                    </>
+                  ) : (
+                    <span className="muted"> · {t.officeWeekUnknown}</span>
+                  )}
+                </span>
+                {r.others.length > 0 && <span className="muted tiny">{r.others.map((o) => `${o.label} ${pct(o.used)}`).join(' · ')}</span>}
+                {roughRate(r) && <span className="muted tiny">⚠ {fmt(t.officeWeekRough, { n: fmtTokens(r.sample) })}</span>}
+                {tooMuch && <span className="action-msg tiny">{fmt(t.officeWeekOver, { n: pct(left) })}</span>}
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

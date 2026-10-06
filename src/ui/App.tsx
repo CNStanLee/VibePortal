@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { ServerInfo } from '../shared/types';
 import { api, auth, desktop, setToken, useLive, type Notice } from './api';
@@ -169,6 +169,7 @@ export function Dashboard() {
 
       {/* keyed by tab: each page plays its entrance */}
       <main className="content" key={snapshot ? tab : 'loading'}>
+        <PageGuard label={t.pageCrashed} retry={t.retry}>
         {!snapshot ? (
           <div className="loading">
             <div className="spinner" aria-hidden />
@@ -214,6 +215,7 @@ export function Dashboard() {
         ) : (
           <SettingsPage info={info} />
         )}
+        </PageGuard>
       </main>
 
       {launching && (
@@ -260,6 +262,29 @@ export function PetPage() {
   return (
     <PetWidget snapshot={snapshot} variant="window" />
   );
+}
+
+/** A page that throws shows what went wrong (and a way back) instead of a blank screen. */
+class PageGuard extends Component<{ label: string; retry: string; children: React.ReactNode }, { error?: Error }> {
+  state: { error?: Error } = {};
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error) {
+    console.error('[page]', error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <section className="card page-crash">
+        <b>{this.props.label}</b>
+        <pre className="mono small">{String(this.state.error.message || this.state.error)}</pre>
+        <button className="btn" onClick={() => this.setState({ error: undefined })}>
+          {this.props.retry}
+        </button>
+      </section>
+    );
+  }
 }
 
 /** Sign-in screen: a password for remote viewers when one is set, else the access token. */

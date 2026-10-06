@@ -7,8 +7,8 @@ import path from 'node:path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-office-'));
 process.env.VIBEPORTAL_HOME = home;
 
-import { autoLayout, cascadeGrants, estimateTeam, fitToBudget, grantOf, nodePrompt, wouldCycle, type OfficeNode } from '../src/shared/office';
-import { Office, cleanTeam, parsePlan, parseReview, reviewPrompt, type OfficeHost } from '../src/core/office';
+import { assignModels, autoLayout, cascadeGrants, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeNode } from '../src/shared/office';
+import { Office, cleanTeam, parsePlan, parseReview, planPrompt, reviewPrompt, type OfficeHost } from '../src/core/office';
 import type { TaskInfo } from '../src/shared/types';
 
 const node = (id: string, parent?: string, extra: Partial<OfficeNode> = {}): OfficeNode => ({ id, name: id.toUpperCase(), role: 'engineer', agent: 'claude', model: 'sonnet', effort: 'medium', task: `do ${id}`, ...(parent ? { parent } : {}), grants: ['edit', 'run'], x: 0, y: 0, ...extra });
@@ -287,4 +287,82 @@ test('office: a supervisor can refuse, and can pass requests to the developer', 
   assert.equal(await office.decide(dev, 'Bash', { command: 'npm i' }), undefined, 'passed to the developer');
   assert.equal(asks().at(-1)?.to, 'lead');
   assert.equal(asks().at(-1)?.state, 'user');
+});
+
+test('office: teams saved before desks had permissions load (the floor no longer crashes on them)', () => {
+  const file = path.join(home, 'office.json');
+  const keep = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, JSON.stringify({ teams: [{ id: 'old', name: 'Old', goal: 'g', budget: 35, permission: 'auto', nodes: [{ id: 'a', name: 'Lead', role: 'lead', agent: 'claude', task: '', x: 1, y: 2 }, { id: 'b', name: 'W', role: 'writer', agent: 'claude', task: '', parent: 'a', x: 3, y: 4 }], updatedAt: '2026-10-06T00:00:00Z' }], runs: [{ id: 'r', teamId: 'old', state: 'done', nodes: [{ id: 'a', role: 'lead' }], progress: { a: { state: 'done' } } }] }));
+  const office = new Office();
+  const [team] = office.view().teams;
+  assert.deepEqual(team.nodes.map((n) => n.grants), [['edit', 'run', 'git'], ['edit']]);
+  assert.equal((team as { permission?: string }).permission, undefined);
+  assert.deepEqual(office.view().runs[0].nodes[0].grants, ['edit', 'run', 'git']);
+  fs.writeFileSync(file, keep);
+});
+
+test('office: weekly limits — tokens per 1% from this week, the budget as a share of each week', () => {
+  const day = (date: string, tokens: number) => ({ date, totals: { input: tokens, output: 0, cacheRead: 999, cacheWrite: 0, total: tokens, messages: 1, cost: 0 }, byModel: {} });
+  const now = Date.now();
+  const resets = new Date(now + 2 * 86400_000).toISOString();
+  const local = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const providers = [
+    {
+      provider: 'claude',
+      quotas: [
+        { id: 'weekly_all', kind: 'weekly', percent: 50, resetsAt: resets, windowMinutes: 10080, label: 'Weekly', severity: 'normal' },
+        { id: 'weekly_scoped:Fable', kind: 'weekly', percent: 80, resetsAt: resets, windowMinutes: 10080, label: 'Weekly · Fable', severity: 'normal' },
+      ],
+      daily: [day(local(now - 9 * 86400_000), 9e9), day(local(now - 86400_000), 6_000_000), day(local(now), 4_000_000)],
+    },
+    { provider: 'openai', quotas: [{ id: 'codex', kind: 'weekly', percent: 10, resetsAt: resets, windowMinutes: 10080, label: 'Weekly', severity: 'normal' }], daily: [day(local(now), 200_000)] },
+  ] as unknown as import('../src/shared/types').ProviderSnapshot[];
+  const rates = weeklyRates(providers);
+  assert.equal(rates.claude?.used, 50);
+  assert.equal(rates.claude?.tokensPerPct, 200_000, 'only this week counts: 10M tokens / 50%');
+  assert.deepEqual(rates.claude?.others, [{ label: 'Weekly · Fable', used: 80 }]);
+  assert.equal(roughRate(rates.claude), false);
+  assert.equal(roughRate(rates.codex), true, 'few tokens: rough');
+
+  const nodes = [node('a', undefined, { model: 'sonnet' })];
+  const pct = usdToWeeklyPct(10, 'claude', nodes, rates.claude)!;
+  assert.ok(pct > 0);
+  assert.ok(Math.abs(weeklyPctToUsd(pct, 'claude', nodes, rates.claude)! - 10) < 1e-9, 'and back');
+  assert.equal(usdToWeeklyPct(10, 'claude', nodes, undefined), undefined);
+
+  const prompt = planPrompt('Build it', { budget: 5, lang: 'en', claude: true, codex: true, rates });
+  assert.match(prompt, /Claude: 50% of its weekly limit used, 50% left/);
+  assert.match(prompt, /Weekly · Fable: 80% used/);
+  assert.match(prompt, /Codex: 10% of its weekly limit used/);
+  assert.match(prompt, /"difficulty"/);
+  assert.match(prompt, /at most 4 levels/);
+  assert.match(planPrompt('x', { budget: 1, lang: 'zh', claude: true, codex: false }), /Codex: not installed/);
+});
+
+test('office: models by difficulty, strengths and weekly room; effort sliders', () => {
+  const nodes = [node('lead', undefined, { role: 'lead' }), node('eng', 'lead', { difficulty: 3 }), node('test', 'lead', { role: 'tester', difficulty: 2 }), node('hard', 'lead', { difficulty: 5 }), node('doc', 'lead', { role: 'writer', difficulty: 1 })];
+  const roomy = { claude: { used: 70, sample: 1e7, others: [] }, codex: { used: 20, sample: 1e7, others: [] } };
+  const a = assignModels(nodes, { rates: roomy, available: { claude: true, codex: true } });
+  const by = Object.fromEntries(a.map((n) => [n.id, n]));
+  assert.equal(by.lead.agent, 'claude');
+  assert.equal(by.lead.model, 'opus');
+  assert.equal(by.eng.agent, 'codex', 'implementation goes where there is more room');
+  assert.equal(by.test.agent, 'codex');
+  assert.equal(by.hard.agent, 'claude', 'the hardest part stays on Claude');
+  assert.equal(by.hard.effort, 'xhigh');
+  assert.equal(by.doc.model, 'haiku');
+  assert.equal(by.doc.effort, 'low');
+  const tight = assignModels(nodes, { rates: { claude: { used: 92, sample: 1e7, others: [] }, codex: { used: 20, sample: 1e7, others: [] } }, available: { claude: true, codex: true } });
+  assert.deepEqual(tight.map((n) => n.agent), ['claude', 'codex', 'codex', 'codex', 'codex'], 'Claude nearly used up: only the lead stays');
+  assert.ok(assignModels(nodes, { rates: roomy, available: { claude: true, codex: false } }).every((n) => n.agent === 'claude'));
+
+  const codex = node('c', undefined, { agent: 'codex', effort: 'low' });
+  assert.equal(withEffortLevel(codex, 9).effort, 'xhigh', 'Codex tops out at xhigh');
+  assert.equal(withEffortLevel(node('x'), -3).effort, 'low', 'Claude bottoms out at low');
+  const up = shiftEfforts([node('p', undefined, { effort: 'medium' }), codex], 2);
+  assert.deepEqual(up.map((n) => n.effort), ['xhigh', 'high']);
+  assert.equal(teamEffort(up), (4 + 3) / 2);
 });

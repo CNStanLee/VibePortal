@@ -1,6 +1,6 @@
 // The office: agent teams laid out as an org chart. Shared by the server (runs,
 // storage) and the UI (the drag-and-drop floor, estimates, budget).
-import type { ActivityVerb, LaunchAgent } from './types';
+import type { ActivityVerb, LaunchAgent, ProviderSnapshot } from './types';
 
 export type OfficeRole = 'lead' | 'manager' | 'engineer' | 'researcher' | 'reviewer' | 'tester' | 'writer';
 export const OFFICE_ROLES: OfficeRole[] = ['lead', 'manager', 'engineer', 'researcher', 'reviewer', 'tester', 'writer'];
@@ -36,6 +36,10 @@ export interface OfficeNode {
   grants: OfficeGrant[];
   /** supervisors: how requests from below are answered (default: its agent reviews them) */
   review?: OfficeReview;
+  /** how hard its part is, 1 (routine) – 5 (hardest); drives the model it gets */
+  difficulty?: number;
+  /** why it got this provider / model (from the planner) */
+  why?: string;
   /** position on the floor (top-left of the desk) */
   x: number;
   y: number;
@@ -142,6 +146,43 @@ export function cascadeGrants(nodes: OfficeNode[]): OfficeNode[] {
     return g;
   };
   return nodes.map((n) => ({ ...n, grants: of(n) }));
+}
+
+/**
+ * A team as stored by any version: desks saved before they had permissions get their
+ * role's, and nothing is left that would trip the floor up.
+ */
+export function normalizeNodes(nodes: unknown): OfficeNode[] {
+  const list = Array.isArray(nodes) ? (nodes as Partial<OfficeNode>[]) : [];
+  return cascadeGrants(
+    list
+      .filter((n) => n && typeof n.id === 'string')
+      .map((n) => {
+        const role = OFFICE_ROLES.includes(n.role as OfficeRole) ? (n.role as OfficeRole) : 'engineer';
+        return {
+          ...n,
+          id: n.id!,
+          name: typeof n.name === 'string' ? n.name : 'Agent',
+          role,
+          agent: n.agent === 'codex' ? 'codex' : 'claude',
+          task: typeof n.task === 'string' ? n.task : '',
+          grants: Array.isArray(n.grants) ? n.grants : ROLE_GRANTS[role],
+          x: Number.isFinite(n.x) ? n.x! : 24,
+          y: Number.isFinite(n.y) ? n.y! : 24,
+        } as OfficeNode;
+      }),
+  );
+}
+
+export function normalizeView(v: Partial<OfficeView> | null | undefined): OfficeView {
+  return {
+    teams: (Array.isArray(v?.teams) ? v.teams : []).map((t) => ({ ...t, nodes: normalizeNodes(t.nodes) })),
+    runs: (Array.isArray(v?.runs) ? v.runs : []).map((r) => ({
+      ...r,
+      nodes: normalizeNodes(r.nodes),
+      progress: r.progress ?? {},
+    })),
+  };
 }
 
 // ── the tree ────────────────────────────────────────────────────────────────
@@ -273,11 +314,13 @@ function cheaper(n: OfficeNode): OfficeNode | undefined {
  */
 export function fitToBudget(nodes: OfficeNode[], budget: number): { nodes: OfficeNode[]; fits: boolean } {
   let cur = nodes.map((n) => ({ ...n }));
+  const weight = (n: OfficeNode) => (childrenOf(cur, n.id).length ? 0.6 : 1) * (1.4 - 0.15 * difficultyOf(n));
   for (let guard = 0; guard < 200 && estimateTeam(cur).cost > budget; guard++) {
     const est = estimateTeam(cur).byNode;
     const order = [...cur]
       .filter((n) => cheaper(n))
-      .sort((a, b) => est[b.id].cost * (childrenOf(cur, b.id).length ? 0.6 : 1) - est[a.id].cost * (childrenOf(cur, a.id).length ? 0.6 : 1));
+      // the costliest first; supervisors and harder parts are spared longer
+      .sort((a, b) => weight(b) * est[b.id].cost - weight(a) * est[a.id].cost);
     if (!order.length) break;
     const pick = order[0];
     cur = cur.map((n) => (n.id === pick.id ? cheaper(n)! : n));
@@ -332,3 +375,122 @@ export function nodePrompt(team: { goal: string; nodes: OfficeNode[] }, n: Offic
 }
 
 export const newOfficeId = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+// ── reasoning effort: one ladder for both agents ────────────────────────────
+export const EFFORT_LADDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+/** the rungs each agent has (Claude: low … max, Codex: minimal … xhigh) */
+export const effortSpan = (agent: LaunchAgent): [number, number] => (agent === 'claude' ? [1, 5] : [0, 4]);
+export const effortLevel = (n: Pick<OfficeNode, 'effort'>) => Math.max(0, EFFORT_LADDER.indexOf(n.effort || DEFAULT_EFFORT));
+export function withEffortLevel<T extends Pick<OfficeNode, 'agent' | 'effort'>>(n: T, level: number): T {
+  const [lo, hi] = effortSpan(n.agent);
+  return { ...n, effort: EFFORT_LADDER[Math.min(hi, Math.max(lo, Math.round(level)))] };
+}
+/** The whole package's effort: the desks' average rung. */
+export const teamEffort = (nodes: OfficeNode[]) => (nodes.length ? nodes.reduce((s, n) => s + effortLevel(n), 0) / nodes.length : 2);
+/** Everyone one or more rungs up or down (each within what its agent has). */
+export const shiftEfforts = (nodes: OfficeNode[], delta: number) => nodes.map((n) => withEffortLevel(n, effortLevel(n) + delta));
+
+// ── weekly limits ───────────────────────────────────────────────────────────
+export interface WeeklyRate {
+  /** % of the weekly limit used so far */
+  used: number;
+  resetsAt?: string;
+  /** new tokens (input + output + cache writes) per 1% of the weekly limit, from this week's use */
+  tokensPerPct?: number;
+  /** this week's tokens the conversion rests on (few = rough: use from other machines / the cloud isn't in the logs) */
+  sample: number;
+  /** other weekly limits of the provider (e.g. Fable's own), for the planner */
+  others: { label: string; used: number }[];
+}
+
+const localDay = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * Each agent's weekly limit and how many tokens 1% of it is worth — this week's
+ * tokens over this week's percentage (rough: whole days, and only the use this
+ * machine's logs know about).
+ */
+export function weeklyRates(providers: ProviderSnapshot[]): Partial<Record<LaunchAgent, WeeklyRate>> {
+  const out: Partial<Record<LaunchAgent, WeeklyRate>> = {};
+  for (const p of providers) {
+    const weekly = p.quotas.filter((q) => q.kind === 'weekly');
+    const main = weekly.find((q) => !/scoped|reserve/i.test(q.id)) ?? weekly[0];
+    if (!main) continue;
+    let tokensPerPct: number | undefined;
+    let sample = 0;
+    if (main.resetsAt && main.percent >= 1) {
+      const from = localDay(Date.parse(main.resetsAt) - (main.windowMinutes ?? 7 * 1440) * 60_000);
+      sample = p.daily.filter((d) => d.date >= from).reduce((s, d) => s + d.totals.input + d.totals.output + d.totals.cacheWrite, 0);
+      if (sample > 0) tokensPerPct = sample / main.percent;
+    }
+    out[p.provider === 'claude' ? 'claude' : 'codex'] = {
+      used: main.percent,
+      resetsAt: main.resetsAt,
+      tokensPerPct,
+      sample,
+      others: weekly.filter((q) => q !== main).map((q) => ({ label: q.label, used: q.percent })),
+    };
+  }
+  return out;
+}
+
+/** A conversion from little of this week's use (under ~1.5M tokens, or under 5%) is only a rough guide. */
+export const roughRate = (r?: WeeklyRate) => !!r?.tokensPerPct && (r.sample < 1_500_000 || r.used < 5);
+
+/** Tokens and cost of the team's estimate, per agent. */
+export function estimateByAgent(nodes: OfficeNode[]): Record<LaunchAgent, NodeEstimate> {
+  const out: Record<LaunchAgent, NodeEstimate> = { claude: { tokens: 0, cost: 0 }, codex: { tokens: 0, cost: 0 } };
+  for (const n of nodes) {
+    const e = estimateNode(nodes, n);
+    out[n.agent].tokens += e.tokens;
+    out[n.agent].cost += e.cost;
+  }
+  return out;
+}
+
+/** What `usd` buys of an agent's weekly limit, at the team's mix of models for it (or a typical one). */
+export function usdToWeeklyPct(usd: number, agent: LaunchAgent, nodes: OfficeNode[], rate?: WeeklyRate): number | undefined {
+  if (!rate?.tokensPerPct) return undefined;
+  const mine = estimateByAgent(nodes)[agent];
+  const perToken = mine.tokens ? mine.cost / mine.tokens : costPerToken(agent, agent === 'claude' ? 'sonnet' : undefined);
+  return usd / perToken / rate.tokensPerPct;
+}
+/** The other way round: the dollars that are `pct` of an agent's weekly limit. */
+export function weeklyPctToUsd(pct: number, agent: LaunchAgent, nodes: OfficeNode[], rate?: WeeklyRate): number | undefined {
+  const one = usdToWeeklyPct(1, agent, nodes, rate);
+  return one ? pct / one : undefined;
+}
+
+// ── who gets which model ────────────────────────────────────────────────────
+export const ROLE_DIFFICULTY: Record<OfficeRole, number> = { lead: 4, manager: 3, engineer: 3, researcher: 3, reviewer: 3, tester: 2, writer: 2 };
+export const difficultyOf = (n: Pick<OfficeNode, 'difficulty' | 'role'>) => Math.min(5, Math.max(1, Math.round(n.difficulty ?? ROLE_DIFFICULTY[n.role])));
+const CLAUDE_BY_DIFFICULTY: Record<number, [string, string]> = { 1: ['haiku', 'low'], 2: ['haiku', 'medium'], 3: ['sonnet', 'medium'], 4: ['opus', 'high'], 5: ['opus', 'xhigh'] };
+const CODEX_BY_DIFFICULTY: Record<number, string> = { 1: 'low', 2: 'low', 3: 'medium', 4: 'high', 5: 'xhigh' };
+/** roles Codex does well (focused implementation, tests, terminal work) */
+const CODEX_ROLES: OfficeRole[] = ['engineer', 'tester'];
+
+/**
+ * Gives every desk a provider, model and effort from how hard its part is, what each
+ * model is good at and how much of each weekly limit is left: the hardest parts and the
+ * people in charge get the strong Claude models; implementation and tests go to Codex
+ * when it has more room left this week; a provider that is nearly used up is avoided.
+ */
+export function assignModels(nodes: OfficeNode[], ctx: { rates: Partial<Record<LaunchAgent, WeeklyRate>>; available: Record<LaunchAgent, boolean> }): OfficeNode[] {
+  const room = (a: LaunchAgent) => (ctx.available[a] ? 100 - (ctx.rates[a]?.used ?? 0) : -1);
+  return nodes.map((n) => {
+    const d = difficultyOf(n);
+    const leads = childrenOf(nodes, n.id).length > 0;
+    let agent: LaunchAgent = 'claude';
+    if (room('claude') < 0) agent = 'codex';
+    else if (room('codex') >= 0) {
+      if (room('claude') < 15 && !(leads && d >= 4)) agent = 'codex';
+      else if (room('codex') >= 15 && CODEX_ROLES.includes(n.role) && !leads && d <= 4 && room('codex') >= room('claude')) agent = 'codex';
+    }
+    if (agent === 'codex') return { ...n, agent, model: undefined, effort: CODEX_BY_DIFFICULTY[d], difficulty: d };
+    const [model, effort] = CLAUDE_BY_DIFFICULTY[d];
+    return { ...n, agent, model, effort, difficulty: d };
+  });
+}

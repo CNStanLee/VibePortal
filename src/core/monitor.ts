@@ -1,6 +1,7 @@
 import { TaskArchive } from './archive';
 import { SkillGraphStore } from './skillGraph';
 import { Office, parsePlan, planPrompt } from './office';
+import { weeklyRates } from '../shared/office';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { ClaudeLocalCollector } from './collectors/claudeLocal';
@@ -30,6 +31,8 @@ export interface Notice {
 }
 
 const FINISHED_TTL = 30 * 60_000;
+/** drafts office teams */
+const PLAN_MODEL = 'sonnet';
 
 /**
  * Owns all collectors, polls them on their own cadences and publishes a
@@ -214,8 +217,10 @@ export class Monitor extends EventEmitter {
     const budget = Number(body?.budget) > 0 ? Math.min(10_000, Number(body.budget)) : 5;
     const lang = body?.lang === 'zh' ? 'zh' : 'en';
     const c = this.cfg;
-    const prompt = planPrompt(goal, { budget, lang, claude: !!resolveBin('claude', c.claudeBin), codex: !!resolveBin('codex', c.codexBin) });
-    const team = parsePlan(await this.actions.ask(prompt, { claudeBin: c.claudeBin, model: c.suggestModel }), goal, budget);
+    const rates = weeklyRates(this.snapshot?.providers ?? []);
+    const prompt = planPrompt(goal, { budget, lang, rates, claude: !!resolveBin('claude', c.claudeBin), codex: !!resolveBin('codex', c.codexBin) });
+    // weighing difficulty, strengths and weekly room is judgment: a mid-size model, not the small one
+    const team = parsePlan(await this.actions.ask(prompt, { claudeBin: c.claudeBin, model: PLAN_MODEL, timeoutMs: 300_000 }), goal, budget);
     return this.office.saveTeam({ ...team, ...(typeof body?.id === 'string' ? { id: body.id } : {}), cwd: body?.cwd });
   }
 

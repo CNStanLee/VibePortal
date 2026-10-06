@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { OFFICE_GRANTS, OFFICE_ROLES, ROLE_GRANTS, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView } from '../shared/office';
+import { OFFICE_GRANTS, OFFICE_ROLES, ROLE_GRANTS, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
 import type { LaunchAgent, LaunchPermission, TaskInfo } from '../shared/types';
 import { summarize, type Decision } from './permissions';
 import { dataDir } from './config';
@@ -47,6 +47,8 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
       ...(typeof n?.parent === 'string' && n.parent ? { parent: n.parent } : {}),
       grants: Array.isArray(n?.grants) ? OFFICE_GRANTS.filter((g) => n.grants.includes(g)) : ROLE_GRANTS[role],
       ...(REVIEWS.includes(n?.review) ? { review: n.review } : {}),
+      ...(Number(n?.difficulty) >= 1 ? { difficulty: Math.min(5, Math.round(Number(n.difficulty))) } : {}),
+      ...(str(n?.why, 200).trim() ? { why: str(n.why, 200).trim() } : {}),
       x: Math.round(num(n?.x, 0, 6000, 24)),
       y: Math.round(num(n?.y, 0, 6000, 24)),
     });
@@ -71,21 +73,39 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
 }
 
 // ── goal → org chart ────────────────────────────────────────────────────────
-export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'en'; codex: boolean; claude: boolean }): string {
-  const agents = [opts.claude && 'claude', opts.codex && 'codex'].filter(Boolean).join(' or ') || 'claude';
+export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'en'; codex: boolean; claude: boolean; rates?: Partial<Record<LaunchAgent, WeeklyRate>> }): string {
+  const agents = [opts.claude && 'claude', opts.codex && 'codex'].filter(Boolean).join(' and ') || 'claude';
+  const week = (a: LaunchAgent, name: string) => {
+    const r = opts.rates?.[a];
+    if (!opts[a]) return `${name}: not installed — don't use it.`;
+    if (!r) return `${name}: weekly usage unknown.`;
+    const one = usdToWeeklyPct(1, a, [], r);
+    return [
+      `${name}: ${Math.round(r.used)}% of its weekly limit used, ${Math.max(0, 100 - Math.round(r.used))}% left${r.resetsAt ? ` (resets ${r.resetsAt.slice(0, 16).replace('T', ' ')} UTC)` : ''}`,
+      ...r.others.map((o) => `${o.label}: ${Math.round(o.used)}% used`),
+      one ? `$1 of work ≈ ${one.toFixed(2)}% of the ${name} week` : '',
+    ]
+      .filter(Boolean)
+      .join('; ');
+  };
   return [
-    'You design a team of coding agents (an org chart) for a developer\'s goal. The agents run as headless Claude Code or Codex sessions in one repository.',
+    "You design a team of coding agents (an org chart) for a developer's goal. The agents run as headless Claude Code or Codex sessions in one repository.",
     `Goal:\n"""${goal.trim()}"""`,
     [
-      `Budget for the whole team: about $${opts.budget} at API prices. Rough cost of one agent: opus/high ≈ $2.3, sonnet/medium ≈ $0.7, haiku/medium ≈ $0.3, codex/medium ≈ $0.3. Fit the team to it.`,
-      'Break the goal down top-down: one lead at the top; managers only when the team is big; workers below. 2-8 agents, at most 3 levels.',
+      'Break the goal down top-down into its real parts (e.g. design, implementation per component, verification, documentation / writing). One lead at the top. Give a part its own manager when it has 2 or more workers, so bigger goals become several levels: lead → managers → workers (→ sub-teams if needed). 2-14 agents, at most 4 levels.',
       'Work flows bottom-up: workers run first (in parallel), then each supervisor gets their reports and integrates / reviews. Give every agent a concrete assignment (1-3 sentences) that does not overlap with its siblings.',
-      `Agents: ${agents}. Claude models: fable (strongest, priciest), opus, sonnet, haiku (cheapest). Codex: leave the model empty. Effort: low | medium | high | xhigh (claude also max, codex also minimal).`,
-      `Roles: ${OFFICE_ROLES.join(' | ')}.`,
+      'For every agent judge how hard its part is ("difficulty" 1-5: 1 routine edits / docs, 3 normal feature work, 5 research-level design or the hardest debugging) and choose provider, model and effort from that, from what each model is good at, and from how much weekly usage is left:',
+      '- Claude fable: the strongest reasoning, for the very hardest open-ended design (expensive; has its own small weekly limit). opus: architecture, hard algorithms, integration, careful review, leading. sonnet: solid everyday implementation and review. haiku: simple edits, docs, formatting, quick checks.',
+      '- Codex (GPT-5 class, leave "model" empty): strong at focused implementation, debugging, scripts, running and fixing tests, terminal work; it draws on the separate ChatGPT weekly limit.',
+      '- Effort: low | medium | high | xhigh (claude also max, codex also minimal) — higher for harder parts, low for routine ones.',
+      `- Weekly usage now. ${week('claude', 'Claude')} ${week('codex', 'Codex')}`,
+      '- Prefer the provider with more weekly room left for work both do well; never plan more than about half of what is left on either; leads and the hardest parts stay on the strongest model available.',
+      `Budget for the whole team: about $${opts.budget} at API prices. Rough cost of one agent: opus/high ≈ $2.3, sonnet/medium ≈ $0.7, haiku/medium ≈ $0.3, codex/medium ≈ $0.3. Fit the team to it.`,
+      `Agents available: ${agents}. Roles: ${OFFICE_ROLES.join(' | ')}.`,
       'Permissions ("grants"): a subset of edit | run | git | web | tools (edit files, run commands, git commit/push, use the web, other tools). Least privilege: give each agent only what its assignment needs; an agent can only hold what its supervisor holds. Give git only to whoever commits / pushes (usually the lead). Agents can still ask their supervisor for more during the run.',
-      `Write names and assignments in ${opts.lang === 'zh' ? 'Simplified Chinese' : 'English'}. Names are short (a role-like nickname).`,
+      `Write names, assignments and "why" in ${opts.lang === 'zh' ? 'Simplified Chinese' : 'English'}. Names are short (a role-like nickname). "why": one short sentence on why this provider / model / effort.`,
       'Reply with ONLY this JSON, no prose, no code fences:',
-      '{"name":"team name","nodes":[{"key":"a1","parent":null,"name":"","role":"lead","agent":"claude","model":"opus","effort":"high","grants":["edit","run","git"],"task":""}]}',
+      '{"name":"team name","nodes":[{"key":"a1","parent":null,"name":"","role":"lead","difficulty":4,"agent":"claude","model":"opus","effort":"high","grants":["edit","run","git"],"task":"","why":""}]}',
       '"parent" is the key of the supervisor (null for the lead).',
     ].join('\n'),
   ].join('\n\n');
@@ -181,9 +201,10 @@ export class Office {
 
   constructor() {
     try {
-      const o = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (Array.isArray(o?.teams)) this.data.teams = o.teams;
-      if (Array.isArray(o?.runs)) this.data.runs = o.runs;
+      // teams saved by earlier versions are brought up to date
+      const o = normalizeView(JSON.parse(fs.readFileSync(this.file, 'utf8')));
+      this.data.teams = o.teams.map((t) => cleanTeam(t, new Date(t.updatedAt || Date.now())));
+      this.data.runs = o.runs;
     } catch {
       /* a new office */
     }
