@@ -163,6 +163,7 @@ pre {
 /* ── layout ─────────────────────────────────────────────────────────────── */
 .app {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 .topbar {
   position: sticky;
@@ -3006,7 +3007,8 @@ html.pet-page body {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    /* lifted above a browser toolbar that covers the bottom of a freshly loaded page */
+    bottom: var(--vv-bottom, 0px);
     z-index: 30;
     margin: 0;
     width: auto;

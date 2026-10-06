@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import type { ServerInfo } from '../shared/types';
 import { api, auth, desktop, setToken, useLive, type Notice } from './api';
 import { dicts, I18n, useT, type Lang } from './i18n';
@@ -79,11 +79,13 @@ export function Dashboard() {
   const [moreAt, setMoreAt] = useState<React.CSSProperties | null>(null);
   // narrow phones: the language and theme switches move into "More"
   const compact = useMedia('(max-width: 420px)');
-  const fit = useTabFit(tabsRef, lang);
+  const phone = useMedia('(max-width: 760px)');
+  const fit = useTabFit(tabsRef, lang, phone);
+  useVisibleBottom();
   // the tabs that fit (the open one always among them); the rest go into "More"
   const shown = fit >= TABS.length ? TABS : TABS.slice(0, fit).includes(tab) ? TABS.slice(0, fit) : [...TABS.slice(0, Math.max(0, fit - 1)), tab];
   const hidden = TABS.filter((k) => !shown.includes(k));
-  useTabPill(tabsRef, tab, lang, shown.join());
+  useTabPill(tabsRef, tab, lang, `${shown.join()}${phone}`);
 
   if (authFailed) return <TokenGate />;
 
@@ -124,6 +126,42 @@ export function Dashboard() {
   // already shows the desktop pet
   const showFloatingPet = !desktop() && !!info && (info.mode !== 'desktop' || !info.viewerLocal) && snapshot?.petConfig.enabled;
 
+  // phones: the bottom bar lives right under <body>, not inside the sticky header — some mobile
+  // browsers place a fixed bar inside a sticky one wrongly until the page is laid out again
+  const navBar = (
+    <nav className="tabs" role="tablist" ref={tabsRef}>
+      <span className="tab-pill" aria-hidden />
+      {shown.map((k) => (
+        <button key={k} data-tab={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
+          <TabIcon tab={k} />
+          <span className="tab-label">{t[k]}</span>
+          {k === 'tasks' && running > 0 && (
+            <span className="count" key={running}>
+              {running}
+            </span>
+          )}
+        </button>
+      ))}
+      {(hidden.length > 0 || compact) && (
+        <button
+          ref={moreRef}
+          className="tab-more"
+          aria-haspopup="menu"
+          aria-expanded={!!moreAt}
+          onClick={() => {
+            if (moreAt) return setMoreAt(null);
+            const r = moreRef.current!.getBoundingClientRect();
+            // phones: the menu opens upward from the bottom bar; otherwise below the button
+            setMoreAt(r.top > innerHeight / 2 ? { bottom: innerHeight - r.top + 6, right: 8 } : { top: r.bottom + 6, left: Math.max(8, Math.min(r.left, innerWidth - 228)) });
+          }}
+        >
+          <TabIcon tab="more" />
+          <span className="tab-label">{t.moreMenu}</span>
+          {hidden.includes('tasks') && running > 0 && <span className="count">{running}</span>}
+        </button>
+      )}
+    </nav>
+  );
   return (
     <div className="app">
       <header className="topbar">
@@ -134,38 +172,7 @@ export function Dashboard() {
             <span className="conn-dot" aria-hidden /> {connected ? t.live : t.offline}
           </span>
         </div>
-        <nav className="tabs" role="tablist" ref={tabsRef}>
-          <span className="tab-pill" aria-hidden />
-          {shown.map((k) => (
-            <button key={k} data-tab={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
-              <TabIcon tab={k} />
-              <span className="tab-label">{t[k]}</span>
-              {k === 'tasks' && running > 0 && (
-                <span className="count" key={running}>
-                  {running}
-                </span>
-              )}
-            </button>
-          ))}
-          {(hidden.length > 0 || compact) && (
-            <button
-              ref={moreRef}
-              className="tab-more"
-              aria-haspopup="menu"
-              aria-expanded={!!moreAt}
-              onClick={() => {
-                if (moreAt) return setMoreAt(null);
-                const r = moreRef.current!.getBoundingClientRect();
-                // phones: the menu opens upward from the bottom bar; otherwise below the button
-                setMoreAt(r.top > innerHeight / 2 ? { bottom: innerHeight - r.top + 6, right: 8 } : { top: r.bottom + 6, left: Math.max(8, Math.min(r.left, innerWidth - 228)) });
-              }}
-            >
-              <TabIcon tab="more" />
-              <span className="tab-label">{t.moreMenu}</span>
-              {hidden.includes('tasks') && running > 0 && <span className="count">{running}</span>}
-            </button>
-          )}
-        </nav>
+        {phone ? createPortal(navBar, document.body) : navBar}
         {moreAt && (
           <>
             <div className="more-backdrop" onPointerDown={() => setMoreAt(null)} />
@@ -518,7 +525,7 @@ const PHONE_TAB = 58;
  * bar's width over a minimum tab width. Wider screens: the tabs' own widths (remembered from
  * when they were on show) against the room between the brand and the buttons.
  */
-function useTabFit(ref: React.RefObject<HTMLElement | null>, lang: Lang): number {
+function useTabFit(ref: React.RefObject<HTMLElement | null>, lang: Lang, phone: boolean): number {
   const [fit, setFit] = useState(TABS.length);
   const widths = useRef(new Map<string, number>());
   // new labels, new widths: show everything once to measure again
@@ -560,6 +567,42 @@ function useTabFit(ref: React.RefObject<HTMLElement | null>, lang: Lang): number
     const ro = new ResizeObserver(measure);
     ro.observe(bar);
     return () => ro.disconnect();
-  }, [ref, lang, fit]);
+  }, [ref, lang, fit, phone]);
   return fit;
+}
+
+/**
+ * How much of the bottom of the page the browser's own toolbar hides, as --vv-bottom: some
+ * mobile browsers lay a fresh page out taller than what is on screen, which puts a bar fixed
+ * to the bottom under their toolbar until something (like tapping the address bar) lays it
+ * out again. The visual viewport is what is really on screen. Not while typing (the keyboard)
+ * or zoomed in.
+ */
+function useVisibleBottom() {
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const update = () => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '');
+      const hidden = typing || vv.scale > 1.01 ? 0 : Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+      root.style.setProperty('--vv-bottom', `${hidden}px`);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    addEventListener('resize', update);
+    addEventListener('focusin', update);
+    addEventListener('focusout', update);
+    // browsers settle their toolbars a moment after the page shows
+    const timers = [80, 300, 1000, 2500].map((ms) => setTimeout(update, ms));
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+      removeEventListener('resize', update);
+      removeEventListener('focusin', update);
+      removeEventListener('focusout', update);
+      timers.forEach(clearTimeout);
+    };
+  }, []);
 }
