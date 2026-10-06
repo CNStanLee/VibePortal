@@ -15,6 +15,9 @@ import { parseWham } from '../src/core/collectors/chatgptUsage';
 import { UsageLedger, projectKey, repoWeb, toWebUrl } from '../src/core/ledger';
 import { parseRemoteTaskId } from '../src/core/remote';
 
+// saved background runs and config come from here, not the real ~/.vibeportal
+process.env.VIBEPORTAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-home-'));
+
 const T = { warn: 75, critical: 90 };
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'vp-test-'));
 

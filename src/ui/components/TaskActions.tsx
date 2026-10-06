@@ -6,6 +6,12 @@ import { api, desktop, dismissTask, runOverride } from '../api';
 const remoteViewer = () => !desktop() && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 import { useT } from '../i18n';
 
+/** A task, or the background run that took its conversation over (queued instructions). */
+export function followTask(tasks: TaskInfo[], id: string | null): TaskInfo | undefined {
+  if (!id) return undefined;
+  return tasks.find((x) => x.id === id) ?? tasks.find((x) => x.continuedFrom === id);
+}
+
 /**
  * "What next?" panel for one task: shows the last exchange, can ask Claude for
  * suggested next steps, and sends a new instruction (continue / fork in the background).
@@ -62,6 +68,8 @@ export function TaskActions({
   // away from the desk, an instruction has to actually run: default to the background run there
   const away = remoteViewer();
   const handoffFirst = (vscodeClaude || vscodeCodex) && !away;
+  // a background run that is still busy takes the instruction as a follow-up for when its turn ends
+  const busyRun = task.kind === 'dispatch' && (task.state === 'running' || task.state === 'waiting');
   const toVscode = async () => {
     const prompt = text.trim();
     setBusy('send');
@@ -84,9 +92,10 @@ export function TaskActions({
     setBusy('send');
     setMsg('');
     try {
-      await api.continueTask(task.id, prompt, runOverride(task.id));
+      const r = await api.continueTask(task.id, prompt, runOverride(task.id));
       setText('');
       setSuggestions(null);
+      if (r.queued) return setMsg(t.queuedMsg);
       setMsg(away ? t.startedAway : t.started);
       dismissTask(task.id, task.finishedAt ?? task.updatedAt);
       setTimeout(() => onDone?.(), 1200);
@@ -94,6 +103,14 @@ export function TaskActions({
       setMsg((e as Error).message);
     } finally {
       setBusy('');
+    }
+  };
+  const unqueue = async () => {
+    try {
+      await api.clearQueue(task.id);
+      setMsg('');
+    } catch (e) {
+      setMsg((e as Error).message);
     }
   };
   const copyOpen = async () => {
@@ -130,6 +147,21 @@ export function TaskActions({
       )}
       {task.canContinue && (
         <>
+          {task.queued && task.queued.length > 0 && (
+            <div className="queued">
+              <div className="ctx-label">
+                ⏳ {t.queuedTitle}{' '}
+                <button type="button" className="link" onClick={() => void unqueue()}>
+                  {t.unqueue}
+                </button>
+              </div>
+              {task.queued.map((q, i) => (
+                <div key={i} className="queued-item">
+                  {q}
+                </div>
+              ))}
+            </div>
+          )}
           {suggestions && suggestions.length > 0 && (
             <div className="chips">
               {suggestions.map((sug) => (
@@ -162,14 +194,16 @@ export function TaskActions({
                   e.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder={t.instructionPh}
+              placeholder={busyRun ? t.queuePh : t.instructionPh}
               disabled={busy === 'send'}
               aria-label={t.instructionPh}
             />
             <button className="btn primary" disabled={!text.trim() || !!busy} title={handoffFirst && vscodeClaude ? t.sendToVscodeHelp : undefined}>
               {busy === 'send'
                 ? '…'
-                : handoffFirst
+                : busyRun
+                  ? t.queueSend
+                  : handoffFirst
                   ? vscodeClaude
                     ? t.sendToVscode
                     : t.openCodexVscode

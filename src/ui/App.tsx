@@ -13,12 +13,13 @@ import { RemoteHostsCard } from './components/Remote';
 import { Resources } from './components/Resources';
 import { NewTask } from './components/NewTask';
 import { SkillsPage } from './components/Skills';
+import { FarmPage } from './components/Farm';
 import { OfficialRemoteCard } from './components/OfficialRemote';
 import { DevicesCard, GoogleButton } from './components/GoogleAccount';
 
-type Tab = 'overview' | 'analysis' | 'resources' | 'tasks' | 'skills' | 'settings';
+type Tab = 'overview' | 'analysis' | 'resources' | 'tasks' | 'skills' | 'farm' | 'settings';
 // tasks first: it's what you come back for
-const TABS: Tab[] = ['tasks', 'overview', 'analysis', 'resources', 'skills', 'settings'];
+const TABS: Tab[] = ['tasks', 'overview', 'analysis', 'resources', 'skills', 'farm', 'settings'];
 type Theme = 'system' | 'light' | 'dark';
 
 export function I18nProvider({ initial, children }: { initial: Lang; children: React.ReactNode }) {
@@ -197,6 +198,8 @@ export function Dashboard() {
           <Resources snapshot={snapshot} />
         ) : tab === 'skills' ? (
           <SkillsPage onUse={(ids) => setLaunching({ skills: ids })} />
+        ) : tab === 'farm' ? (
+          <FarmPage />
         ) : tab === 'tasks' ? (
           <div className="tasks-page">
             <section className="card">
@@ -346,6 +349,7 @@ function TabIcon({ tab }: { tab: Tab }) {
     analysis: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     resources: 'M7 7h10v10H7zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3',
     tasks: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2',
+    farm: 'M12 21v-9M12 12c0-4 3-7 7-7 0 4-3 7-7 7zM12 14c0-3-2.5-5.5-6-5.5 0 3 2.5 5.5 6 5.5zM5 21h14',
     skills: 'M12 3l2.6 5.6L20.5 9l-4.4 4 1.2 6L12 16l-5.3 3 1.2-6-4.4-4 5.9-.4z',
     settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
   };

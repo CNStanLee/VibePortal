@@ -67,6 +67,8 @@ export class Monitor extends EventEmitter {
   private lastCostFetch = 0;
   private ticking = false;
   private dispatchProvider = new Map<string, Provider>();
+  /** instructions sent to a background run while it was busy, keyed by job id */
+  private followUps = new Map<string, { prompts: string[]; run: RunOptions }>();
 
   constructor(private cfg: Config) {
     super();
@@ -79,6 +81,7 @@ export class Monitor extends EventEmitter {
     this.codex.activity.onWrite = (f, cwd) => this.skills.noteWrite(f, { cwd, agent: 'codex' });
     this.actions = new ActionRunner((job) => {
       this.tasks.upsertDispatch(job, this.dispatchProvider.get(job.id));
+      if (job.state !== 'running' && this.followUps.has(job.id)) this.runFollowUp(job.id);
       this.poke();
       // a finished run: read the tail of its transcript now rather than at the next poll
       if (job.state !== 'running') void this.tick();
@@ -177,12 +180,44 @@ export class Monitor extends EventEmitter {
     return this.actions.suggest(task, this.taskContext(task), { claudeBin: this.cfg.claudeBin, model: this.cfg.suggestModel, lang });
   }
 
-  continueTask(task: TaskInfo, prompt: string, run: RunOptions = {}) {
+  continueTask(task: TaskInfo, prompt: string, run: RunOptions = {}): { jobId: string; queued?: boolean } {
+    // a background run that is still busy: the instruction waits for its turn to end, in the same conversation
+    const jobId = task.kind === 'dispatch' ? task.id.replace(/^dispatch:/, '') : '';
+    if (jobId && this.actions.jobList().some((j) => j.id === jobId && j.running)) {
+      const q = this.followUps.get(jobId) ?? { prompts: [], run: {} };
+      if (q.prompts.length >= 10) throw httpError(429, 'Too many queued instructions');
+      q.prompts.push(prompt);
+      q.run = { ...q.run, ...run };
+      this.followUps.set(jobId, q);
+      this.poke();
+      return { jobId, queued: true };
+    }
     const sid = task.kind === 'dispatch' ? task.sessionId : sessionIdOf(task);
     if (!sid || !task.canContinue) throw httpError(400, 'This task cannot be continued');
     const r = this.actions.continue(task, sid, prompt, { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, run);
     if (task.provider) this.dispatchProvider.set(r.jobId, task.provider);
     return r;
+  }
+
+  /** Takes back the instructions queued on a busy background run. */
+  clearQueue(task: TaskInfo) {
+    this.followUps.delete(task.id.replace(/^dispatch:/, ''));
+    this.poke();
+  }
+
+  /** A busy run finished its turn: its queued instructions go on in the same conversation, as one new run. */
+  private runFollowUp(jobId: string) {
+    const q = this.followUps.get(jobId)!;
+    this.followUps.delete(jobId);
+    const task = this.tasks.customTasks().find((t) => t.id === `dispatch:${jobId}`);
+    try {
+      if (!task?.sessionId) throw new Error('its conversation could not be found');
+      const r = this.actions.continue({ ...task, alive: false }, task.sessionId, q.prompts.join('\n\n'), { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, q.run);
+      if (task.provider) this.dispatchProvider.set(r.jobId, task.provider);
+      this.tasks.handOver(task.id, r.jobId);
+    } catch (e) {
+      this.emit('notice', { title: `⚠ ${task?.title ?? 'Background run'}`, body: `Queued instruction not sent: ${(e as Error).message}`, level: 'warning', taskId: `dispatch:${jobId}` } satisfies Notice);
+    }
   }
 
   /**
@@ -439,7 +474,9 @@ export class Monitor extends EventEmitter {
     return tasks.map((x) => {
       // a run waiting for a permission answer needs you
       const asks = x.kind === 'dispatch' ? this.permissions.forJob(x.id.replace(/^dispatch:/, '')) : [];
-      const t: TaskInfo = asks.length ? { ...x, permissions: asks, state: 'waiting', detail: `🔐 ${asks[0].tool}: ${asks[0].summary}` } : x;
+      let t: TaskInfo = asks.length ? { ...x, permissions: asks, state: 'waiting', detail: `🔐 ${asks[0].tool}: ${asks[0].summary}` } : x;
+      const queued = x.kind === 'dispatch' ? this.followUps.get(x.id.replace(/^dispatch:/, ''))?.prompts : undefined;
+      if (queued?.length) t = { ...t, queued: [...queued] };
       const sid = t.kind === 'dispatch' ? linked.get(t.id.replace(/^dispatch:/, '')) : undefined;
       if (!sid) return t;
       const codex = agentOf.get(t.id) === 'codex';

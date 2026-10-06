@@ -7,6 +7,7 @@ import { LOCAL_ONLY_FIELDS, applyPatch, checkPassword, hasRemoteAuth, saveConfig
 import { LoginLimiter, VIA_TUNNEL, authMode, authorized, clientIp, isLocalRequest, issueSession, verifyGoogleIdToken } from './auth';
 import { Tunnel, checkProvider } from '../core/tunnel';
 import type { ServerInfo } from '../shared/types';
+import { FarmStore } from '../core/farm';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
 
 export interface ServerOptions {
@@ -45,6 +46,7 @@ const MIME: Record<string, string> = {
 export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const { monitor } = opts;
   const clients = new Set<http.ServerResponse>();
+  const farm = new FarmStore();
   const discovery = new Discovery(monitor.config.instanceId, () => ({
     name: monitor.config.machineName,
     port: boundPort,
@@ -191,6 +193,10 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         return;
       }
       if (p === '/api/snapshot' && req.method === 'GET') return json(res, 200, monitor.current() ?? null);
+      // ── the crab farm ──
+      if (p === '/api/farm' && req.method === 'GET') return json(res, 200, farm.view(monitor.current()?.providers));
+      const fm = /^\/api\/farm\/(draw|plant|harvest|uproot|discard)$/.exec(p);
+      if (fm && req.method === 'POST') return json(res, 200, farm.act(fm[1], await readJson(req), monitor.current()?.providers));
       if (p === '/api/info' && req.method === 'GET') return json(res, 200, info(req));
       if (p === '/api/refresh' && req.method === 'POST') {
         await monitor.refresh();
@@ -382,7 +388,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       }
 
       // ── task actions: /api/tasks/<id>[/context|/suggest|/continue|/open] ──
-      const tm = /^\/api\/tasks\/([^/]+)(?:\/(context|history|suggest|continue|open|vscode))?$/.exec(p);
+      const tm = /^\/api\/tasks\/([^/]+)(?:\/(context|history|suggest|continue|queue|open|vscode))?$/.exec(p);
       if (tm) {
         const id = decodeURIComponent(tm[1]);
         const action = tm[2];
@@ -405,8 +411,12 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           const body = await readJson(req);
           const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
           if (!prompt) return json(res, 400, { error: 'prompt is required' });
-          const run = cleanRunOptions(task.kind === 'codex' ? 'codex' : 'claude', body);
+          const run = cleanRunOptions(task.kind === 'codex' || (task.kind === 'dispatch' && task.provider === 'openai') ? 'codex' : 'claude', body);
           return json(res, 200, monitor.continueTask(task, prompt.slice(0, 20_000), run));
+        }
+        if (action === 'queue' && req.method === 'DELETE') {
+          monitor.clearQueue(task);
+          return json(res, 200, { ok: true });
         }
         if (action === 'vscode' && req.method === 'POST') {
           const body = await readJson(req);

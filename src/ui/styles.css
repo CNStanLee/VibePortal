@@ -2409,6 +2409,25 @@ html.pet-page body {
 .task-actions.compact .ctx-text {
   max-height: 90px;
 }
+.queued {
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  padding: 5px 8px;
+  display: grid;
+  gap: 3px;
+}
+.queued .ctx-label .link {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.queued-item {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60px;
+  overflow: auto;
+}
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -4262,5 +4281,442 @@ html.pet-page body {
   100% {
     transform: scale(1.08, 1.14);
     opacity: 0;
+  }
+}
+
+/* ── crab farm ─────────────────────────────────────────────────────────── */
+.farm {
+  --r-common: #9aa3b5;
+  --r-fine: #4caf50;
+  --r-rare: #3b82f6;
+  --r-epic: #a855f7;
+  --r-legendary: #f59e0b;
+  display: grid;
+  gap: 14px;
+}
+.farm .r-common { --r: var(--r-common); }
+.farm .r-fine { --r: var(--r-fine); }
+.farm .r-rare { --r: var(--r-rare); }
+.farm .r-epic { --r: var(--r-epic); }
+.farm .r-legendary { --r: var(--r-legendary); }
+.farm .r-name {
+  color: var(--r);
+}
+.farm-hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 16px;
+  align-items: center;
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--r-legendary) 14%, transparent), transparent 60%),
+    var(--surface);
+}
+.farm-hero h2 {
+  margin: 0 0 2px;
+}
+.farm-hero p {
+  margin: 0;
+}
+.farm-wallet {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+.farm-wallet-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.farm-big {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--r-legendary);
+}
+.farm-next {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.farm-bar {
+  width: 110px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.farm-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--r-fine), var(--r-legendary));
+  transition: width 0.6s var(--ease-out);
+}
+.farm-draw-btns {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}
+.farm-draw-btns .btn {
+  flex: 1;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.farm-ten:not(:disabled) {
+  background: linear-gradient(135deg, var(--r-epic), var(--r-legendary));
+  border-color: transparent;
+}
+.farm-odds {
+  grid-column: 1 / -1;
+}
+.farm-odds summary {
+  cursor: pointer;
+}
+.farm-odds ul {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 12px;
+  display: grid;
+  gap: 2px;
+}
+.farm-odds li b {
+  color: var(--r);
+}
+
+/* the field: soil tiles in a 3×3 grid, the crab strolling past */
+.farm-field {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 34px 10px 10px;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #7cc4fa 22%, transparent), transparent 40px),
+    color-mix(in srgb, #5fae4e 22%, var(--surface));
+  max-width: 460px;
+  margin: 0 auto 10px;
+}
+.farm-crab {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  animation: farm-stroll 26s linear infinite;
+  pointer-events: none;
+}
+@keyframes farm-stroll {
+  0% { transform: translateX(6px) scaleX(1); }
+  48% { transform: translateX(calc(min(460px, 86vw) - 60px)) scaleX(1); }
+  50% { transform: translateX(calc(min(460px, 86vw) - 60px)) scaleX(-1); }
+  98% { transform: translateX(6px) scaleX(-1); }
+  100% { transform: translateX(6px) scaleX(1); }
+}
+.plot {
+  position: relative;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 10px;
+  padding: 0;
+  display: grid;
+  place-items: end center;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 7px, rgba(0, 0, 0, 0.08) 7px 9px),
+    #8a5a32;
+  box-shadow: inset 0 -5px 0 #6b4226, inset 0 2px 0 rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: transform 0.15s var(--ease-out);
+  overflow: hidden;
+}
+.plot:active {
+  transform: scale(0.96);
+}
+.plot.empty {
+  place-items: center;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 7px, rgba(0, 0, 0, 0.1) 7px 9px),
+    #9a6a3c;
+}
+.plot-empty {
+  font-size: 26px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.55);
+}
+.plot .plant {
+  width: 74%;
+  height: auto;
+  margin-bottom: 10%;
+}
+.plot-tag {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  white-space: nowrap;
+}
+.plot.ripe {
+  box-shadow: inset 0 -5px 0 #6b4226, 0 0 0 2px var(--r), 0 0 14px color-mix(in srgb, var(--r) 60%, transparent);
+}
+.plot.ripe .plot-tag {
+  background: var(--r);
+  animation: farm-bob 1.2s ease-in-out infinite;
+}
+.plant.sway {
+  transform-origin: 50% 100%;
+  animation: farm-sway 3.2s ease-in-out infinite;
+}
+.plant.c-gold rect,
+.potted.r-legendary .plant {
+  filter: drop-shadow(0 0 0.4px #fff3);
+}
+.plant.c-gold {
+  animation: farm-sway 3.2s ease-in-out infinite, farm-shine 2.4s ease-in-out infinite;
+}
+@keyframes farm-sway {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+@keyframes farm-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-2px); }
+}
+@keyframes farm-shine {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.25) saturate(1.2); }
+}
+
+/* seeds */
+.seed-bag {
+  display: grid;
+  gap: 6px;
+}
+.seed-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.seed-grid.big {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 4px 2px;
+}
+.seed {
+  position: relative;
+  border: 0;
+  background: none;
+  padding: 0;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  cursor: pointer;
+  max-width: 76px;
+  text-align: center;
+  color: var(--ink);
+}
+.seed:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.seed .count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--surface);
+}
+.seed-packet {
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--r) 22%, var(--surface)), var(--surface));
+  border: 2px solid var(--r);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--r) 50%, transparent);
+}
+.seed-packet.r-legendary,
+.seed-packet.r-epic {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--r) 55%, transparent);
+}
+
+/* draw / harvest reveal */
+.farm-modal {
+  text-align: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+.farm-modal h3 {
+  margin: 0;
+}
+.farm-modal .seed-bag {
+  width: 100%;
+}
+.reveal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.reveal.ten {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+.reveal-card {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--r) 10%, var(--surface));
+  animation: farm-flip 0.6s var(--ease-spring) both;
+  min-width: 0;
+}
+.reveal-card .tiny {
+  overflow-wrap: anywhere;
+}
+.reveal-card.r-legendary {
+  background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--r) 40%, transparent), color-mix(in srgb, var(--r) 10%, var(--surface)) 70%);
+}
+.reveal-card.r-legendary,
+.reveal-card.r-epic {
+  box-shadow: 0 0 0 1px var(--r), 0 0 18px color-mix(in srgb, var(--r) 45%, transparent);
+}
+@keyframes farm-flip {
+  0% { opacity: 0; transform: perspective(400px) rotateY(90deg) scale(0.7); }
+  100% { opacity: 1; transform: perspective(400px) rotateY(0) scale(1); }
+}
+.mutated {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--r-legendary);
+}
+
+/* showcase and collection */
+.potted {
+  display: inline-grid;
+  justify-items: center;
+}
+.potted .plant {
+  width: 100%;
+  height: auto;
+  margin-bottom: -6%;
+  position: relative;
+}
+.pot {
+  width: 62%;
+  aspect-ratio: 2.2;
+  background: linear-gradient(180deg, #c8663e 0 22%, #b0532f 22% 30%, #c8663e 30%);
+  clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%);
+  border-radius: 0 0 4px 4px;
+}
+.potted.r-epic .pot,
+.potted.r-legendary .pot {
+  background: linear-gradient(180deg, var(--r) 0 22%, color-mix(in srgb, var(--r) 70%, #000) 22% 30%, var(--r) 30%);
+}
+.showcase {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: repeating-linear-gradient(180deg, transparent 0 82px, color-mix(in srgb, #a8703f 50%, var(--surface-2)) 82px 88px), var(--surface-2);
+}
+.shelf {
+  border: 0;
+  background: none;
+  padding: 4px 0 0;
+  cursor: pointer;
+  border-radius: 8px;
+  height: 82px;
+  display: grid;
+  place-items: end center;
+  position: relative;
+}
+.shelf::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--r);
+}
+.shelf:hover {
+  background: color-mix(in srgb, var(--r) 12%, transparent);
+}
+.crop-detail {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+.crop-detail h3,
+.crop-detail p {
+  margin: 0;
+}
+.dex {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+}
+.dex-item {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--r) 40%, var(--border));
+}
+.dex-item.unknown .plant {
+  filter: brightness(0) opacity(0.25);
+}
+.dex-colors {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 2px;
+}
+.dex-colors i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  opacity: 0.18;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+.dex-colors i.on {
+  opacity: 1;
+}
+@media (max-width: 760px) {
+  .farm-hero {
+    grid-template-columns: 1fr;
+  }
+  .farm-wallet {
+    justify-items: start;
+    text-align: left;
+  }
+  .reveal.ten {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .farm-crab,
+  .plant.sway,
+  .plant.c-gold,
+  .reveal-card {
+    animation: none;
   }
 }

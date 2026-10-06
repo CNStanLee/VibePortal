@@ -1,5 +1,6 @@
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
+import { GROW_MINUTES, discardCrop, draw, farmView, harvest, newFarm, plant, uproot, type FarmState } from '../shared/farm';
 import type {
   DailyUsage,
   LaunchOptions,
@@ -378,8 +379,9 @@ let snap: Snapshot | null = null;
 export const demoSnapshot = () => (snap ??= snapshot());
 
 /** Answers the API calls the UI makes, so every page renders. */
-export function demoCall(method: string, path: string): unknown {
+export function demoCall(method: string, path: string, body?: unknown): unknown {
   const p = path.replace(/\?.*$/, '');
+  if (p === 'api/farm' || p.startsWith('api/farm/')) return demoFarmCall(p, body);
   if (p === 'api/snapshot' || p === 'api/refresh') return demoSnapshot();
   if (p === 'api/info') return info;
   if (p === 'api/settings') return settings;
@@ -410,4 +412,29 @@ export function demoCall(method: string, path: string): unknown {
   if (p === 'api/hooks/snippet') return { hooks: {} };
   if (method !== 'GET') return { ok: true };
   return {};
+}
+
+// ── the crab farm, in memory: a few draws' worth of tokens and a half-grown field ──
+let demoFarm: FarmState | undefined;
+function demoFarmCall(p: string, body: unknown): unknown {
+  if (!demoFarm) {
+    const now = Date.now();
+    const f = newFarm(new Date(now - 3 * 86400_000).toISOString().slice(0, 10));
+    for (let d = 0; d < 3; d++) f.days[new Date(now - d * 86400_000).toISOString().slice(0, 10)] = 2_400_000 + d * 700_000;
+    draw(f, 10);
+    f.seeds.slice(0, 5).forEach((s, i) => plant(f, i * 2, s.id, now - (i + 1) * GROW_MINUTES[s.rarity] * 15_000));
+    harvest(f, 0, now + 864e5);
+    demoFarm = f;
+  }
+  if (p === 'api/farm') return farmView(demoFarm);
+  const b = (body ?? {}) as Record<string, unknown>;
+  const s = demoFarm;
+  let result: unknown;
+  const action = p.slice('api/farm/'.length);
+  if (action === 'draw') result = draw(s, Number(b.count) || 1);
+  else if (action === 'plant') plant(s, Number(b.plot), String(b.seedId));
+  else if (action === 'harvest') result = harvest(s, Number(b.plot));
+  else if (action === 'uproot') uproot(s, Number(b.plot));
+  else if (action === 'discard') discardCrop(s, String(b.cropId));
+  return { farm: farmView(s), result };
 }

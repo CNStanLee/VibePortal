@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
+import type { FarmView } from '../shared/farm';
 import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillInfo, Snapshot, TaskContext } from '../shared/types';
 
 export interface Notice {
@@ -144,7 +145,7 @@ export function setToken(t: string) {
 export class AuthError extends Error {}
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (isDemo()) return demoCall(method, path) as T;
+  if (isDemo()) return demoCall(method, path, body) as T;
   const res = await fetch(path, {
     method,
     headers: { Authorization: `Bearer ${memToken ?? ''}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
@@ -197,7 +198,10 @@ export const api = {
   answerPermission: (id: string, allow: boolean, always = false) => call<{ ok: boolean }>('POST', `api/permissions/${id}`, { allow, always }),
   taskContext: (id: string) => call<TaskContext>('GET', `api/tasks/${encodeURIComponent(id)}/context`),
   suggest: (id: string, lang: string) => call<{ suggestions: string[] }>('POST', `api/tasks/${encodeURIComponent(id)}/suggest`, { lang }),
-  continueTask: (id: string, prompt: string, run: RunOverride = {}) => call<{ jobId: string }>('POST', `api/tasks/${encodeURIComponent(id)}/continue`, { prompt, ...run }),
+  continueTask: (id: string, prompt: string, run: RunOverride = {}) => call<{ jobId: string; queued?: boolean }>('POST', `api/tasks/${encodeURIComponent(id)}/continue`, { prompt, ...run }),
+  farm: () => call<FarmView>('GET', 'api/farm'),
+  farmAct: <R = unknown>(action: 'draw' | 'plant' | 'harvest' | 'uproot' | 'discard', body: Record<string, unknown>) => call<{ farm: FarmView; result?: R }>('POST', `api/farm/${action}`, body),
+  clearQueue: (id: string) => call<{ ok: boolean }>('DELETE', `api/tasks/${encodeURIComponent(id)}/queue`),
   launchOptions: () => call<LaunchOptions>('GET', 'api/launch/options'),
   launch: (r: LaunchRequest) => call<{ jobId: string; taskId: string }>('POST', 'api/launch', r),
   skills: (fresh = false) => call<SkillInfo[]>('GET', `api/skills${fresh ? '?fresh=1' : ''}`),

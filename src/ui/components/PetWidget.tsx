@@ -4,7 +4,7 @@ import { desktop, dismissedTasks } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
 import { Mascot, type CrabScene, type MascotKind } from './Mascots';
-import { TaskActions } from './TaskActions';
+import { TaskActions, followTask } from './TaskActions';
 import { ActivityFeed, ModelChip, PlanBar, ProgressBar } from './Activity';
 import { PlanDate, ResetCreditsLine } from './ProviderCard';
 import { NewTask } from './NewTask';
@@ -111,8 +111,12 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
     setOpen((o) => o ?? u.key);
   }, [shown]);
   useEffect(() => {
-    if (open && !shown.some((u) => u.key === open)) setOpen(null);
+    if (!open || shown.some((u) => u.key === open)) return;
+    // a run that went on with your queued instruction keeps its card open
+    const next = shown.find((u) => u.task?.continuedFrom === open);
+    setOpen(next ? next.key : null);
   }, [shown, open]);
+  const historyTask = followTask(snapshot?.tasks ?? [], historyId);
 
   // standalone window: fit the window to the stage
   useLayoutEffect(() => {
@@ -209,9 +213,7 @@ export function PetWidget({ snapshot, variant, onOpenDashboard }: Props) {
         }
       }}
     >
-      {historyId && snapshot?.tasks.find((x) => x.id === historyId) && (
-        <TaskHistoryView task={snapshot.tasks.find((x) => x.id === historyId)!} device={snapshot.machineName} onClose={() => setHistoryId(null)} />
-      )}
+      {historyTask && <TaskHistoryView task={historyTask} device={snapshot?.machineName} onClose={() => setHistoryId(null)} />}
       {variant === 'floating' && (
         <button className="pet-x" onClick={() => setMini(true)} aria-label={t.petMinimize} title={t.petMinimize}>
           –

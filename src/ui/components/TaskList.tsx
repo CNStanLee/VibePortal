@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TaskInfo } from '../../shared/types';
-import { TaskActions } from './TaskActions';
+import { TaskActions, followTask } from './TaskActions';
 import { PermissionPrompt, TaskHistoryView } from './TaskDetail';
 import { ActivityFeed, ModelChip, PlanBar, activityLine } from './Activity';
 import { ClaudeMark, CodexMark } from './Brand';
@@ -34,7 +34,11 @@ export function TaskList({
   const [open, setOpen] = useState<string | null>(null);
   const [historyId, setHistoryId] = useState<string | null>(null);
   const shown = compact ? tasks.filter((x) => x.state !== 'idle').slice(0, 6) : tasks;
-  const historyTask = tasks.find((x) => x.id === historyId);
+  const historyTask = followTask(tasks, historyId);
+  // a run that went on with your queued instruction stays expanded
+  useEffect(() => {
+    if (open && !tasks.some((x) => x.id === open)) setOpen(followTask(tasks, open)?.id ?? null);
+  }, [tasks, open]);
   if (!shown.length) return <p className="muted empty">{t.noTasks}</p>;
   return (
     <>

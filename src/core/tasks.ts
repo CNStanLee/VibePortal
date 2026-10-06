@@ -123,21 +123,22 @@ export class TaskTracker {
   }
 
   /** Background runs started from VibePortal ("continue with an instruction"). */
-  upsertDispatch(job: { id: string; title: string; state: TaskState; detail?: string; cwd?: string; sessionId?: string }, provider?: TaskInfo['provider']) {
+  upsertDispatch(job: { id: string; title: string; state: TaskState; detail?: string; cwd?: string; sessionId?: string; agent?: 'claude' | 'codex' }, provider?: TaskInfo['provider']) {
     const prev = this.custom.get(job.id);
     const now = new Date().toISOString();
     const sessionId = job.sessionId ?? prev?.sessionId;
     this.custom.set(job.id, {
       id: `dispatch:${job.id}`,
       kind: 'dispatch',
-      provider: provider ?? prev?.provider,
+      provider: provider ?? prev?.provider ?? (job.agent ? (job.agent === 'codex' ? 'openai' : 'claude') : undefined),
       title: job.title,
       state: job.state,
       detail: job.detail,
       cwd: job.cwd,
       sessionId,
-      // a finished run can be continued: its session is complete on disk
-      canContinue: !!sessionId && job.state !== 'running',
+      // a finished run is resumed; a busy one takes the instruction into its queue
+      canContinue: !!sessionId || job.state === 'running',
+      continuedFrom: prev?.continuedFrom,
       startedAt: prev?.startedAt ?? now,
       updatedAt: now,
     });
@@ -148,9 +149,16 @@ export class TaskTracker {
   linkDispatch(jobId: string, sessionId: string) {
     const t = this.custom.get(jobId);
     if (t && !t.sessionId) {
-      this.custom.set(jobId, { ...t, sessionId, canContinue: t.state !== 'running' });
+      this.custom.set(jobId, { ...t, sessionId, canContinue: true });
       this.saveRuns();
     }
+  }
+
+  /** A run that picked up where another one left off (its queued instructions): the old task goes. */
+  handOver(fromTaskId: string, toJobId: string) {
+    const t = this.custom.get(toJobId);
+    if (t) this.custom.set(toJobId, { ...t, continuedFrom: fromTaskId });
+    this.removeCustom(fromTaskId);
   }
 
   upsertCustom(body: any): TaskInfo | string {

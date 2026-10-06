@@ -153,6 +153,10 @@ export interface TaskInfo {
   sessionId?: string;
   /** permission requests of this run waiting for an answer */
   permissions?: PendingPermission[];
+  /** background runs: instructions sent while it was busy, run as soon as the current turn ends */
+  queued?: string[];
+  /** a background run that took over this conversation from an earlier run (its task id) */
+  continuedFrom?: string;
   workload?: Workload;
   /** recent progress parsed from the transcript / hooks, for the pet's speech bubble */
   activity?: TaskActivity;
