@@ -16,6 +16,7 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 <a href="https://github.com/CNStanLee/VibePortal/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/CNStanLee/VibePortal?label=%E4%B8%8B%E8%BD%BD"></a>
 <img alt="platforms" src="https://img.shields.io/badge/platforms-Ubuntu%20%7C%20Windows%20%7C%20Web-blue">
 <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
+<a href="#支持这个项目"><img alt="donate" src="https://img.shields.io/badge/%E2%9D%A4-%E6%8D%90%E5%8A%A9-ff69b4"></a>
 </p>
 
 <p align="center"><img src="docs/images/pets-zh.png" alt="每个运行中的任务一只分身，各自带实时进展对话框"></p>
@@ -271,6 +272,14 @@ src/
   ui/                        React 前端（面板、分析、设置、宠物；#/gallery 可预览所有宠物表情）
 test/                        单元测试（npm test）
 ```
+
+## 支持这个项目
+
+VibePortal 免费且开源。如果它帮你省了时间，可以请小螃蟹吃碗白米饭 🍚——用手机相机扫码，或打开 [revolut.me/changh3xx9](https://revolut.me/changh3xx9)：
+
+<p align="center"><a href="https://revolut.me/changh3xx9"><img src="docs/images/donate-revolut.png" width="200" alt="通过 Revolut 捐助"></a></p>
+
+点 Star、提 Issue 和 PR 也同样是很大的支持。谢谢！
 
 ## 致谢
 
