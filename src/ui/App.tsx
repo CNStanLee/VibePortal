@@ -91,7 +91,9 @@ export function Dashboard() {
     }
   };
   const running = snapshot?.tasks.filter((x) => x.state === 'running' || x.state === 'waiting').length ?? 0;
-  const showFloatingPet = !desktop() && info?.mode !== 'desktop' && snapshot?.petConfig.enabled;
+  // the floating pet for every browser — phones included — except one on the computer that
+  // already shows the desktop pet
+  const showFloatingPet = !desktop() && !!info && (info.mode !== 'desktop' || !info.viewerLocal) && snapshot?.petConfig.enabled;
 
   return (
     <div className="app">

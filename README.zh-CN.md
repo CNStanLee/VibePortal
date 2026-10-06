@@ -24,11 +24,13 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 
 你同时开着好几个智能体：某个会话在等你授权，另一个刚做完，而每周额度比你以为的更接近上限。VibePortal 把这些都变成一眼就能看懂的东西。
 
-| | 工具 | 它是什么 | VibePortal 多了什么 |
+| | 工具 | 它是什么 | VibePortal 的不同 |
 | --- | --- | --- | --- |
-| **桌面宠物** | [Desktop Goose][goose] | 一只在桌面上乱跑、抢鼠标、拖来便签的捣蛋鹅 | 宠物由**你的智能体**驱动——它在改什么、跑什么、读什么，每个任务一只分身 |
-| | [Shimeji-ee][shimeji] | 可自定义、在屏幕上闲逛的桌面吉祥物 | 同上：宠物报告真实的工作、订阅限额和授权请求 |
-| | [BongoCat][bongo] | 跟着你的键盘和鼠标敲鼓的猫 | 它跟随的是智能体，而不是你的按键 |
+| **官方宠物** | [Codex Pets][codexpets]（OpenAI，2026 年 5 月） | Codex 桌面应用（Windows / macOS）里的动画伙伴：浮动在屏幕上，显示 Codex 正在做什么，完成或需要你时提醒；`/pet`、`/hatch` | Claude Code **和** Codex **每个任务一只**——包括 CLI 和 VS Code 里的会话——支持 Ubuntu、Windows、网页和手机，带订阅限额，随处都能允许 / 拒绝授权 |
+| | [Claude Code `/buddy`][buddy]（据报道 2026 年 4 月） | 终端里的 ASCII 小伙伴，有物种、稀有度和属性，会在 Claude 旁边插话——被描述为一个独立角色，而不是状态显示 | 小螃蟹展示 Claude 实际在做的事（改文件、跑命令、计划、授权请求）以及订阅限额还剩多少 |
+| **开源智能体宠物** | [clawd-on-desk][clawd] | 像素桌面宠物，根据多种编程智能体的状态做出反应（hooks 与日志轮询），带额度环和允许 / 拒绝气泡；Windows、macOS、Linux | 每个任务一只分身，带实时计划和工具调用；网页 / 手机面板可以开新任务、按模型和强度追加指令、查看完整对话，还有远程机器和官方 Remote Control |
+| | [Claude Status Pet][csp] | 根据 hook 事件显示 Claude Code / Copilot 活动状态的动画宠物 | 同上，另有用量分析、用完预测和本机资源 |
+| **传统桌面宠物** | [Desktop Goose][goose] · [Shimeji-ee][shimeji] · [BongoCat][bongo] | 在屏幕上闲逛、或跟着你的键盘鼠标打拍子的宠物 | 由你的智能体驱动，而不是你的鼠标 |
 | **用量统计** | [ccusage][ccusage] | 从本地 JSONL 日志生成 Claude Code / Codex 用量报告的 CLI | 同样读取本地日志，另有 Claude 与 ChatGPT 的**实时订阅限额**、各窗口重置时间和用完预测——图形界面，手机上也能看 |
 | | [Claude Code Usage Monitor][ccmonitor] | 终端里监控 Claude Code Token 与花费，带计划限额和预测 | 还覆盖 Codex / ChatGPT、任务与进展、宠物、手机访问 |
 | | [CodexBar][codexbar] | macOS 菜单栏应用，显示 Codex、Claude 等的会话 / 每周限额和重置倒计时 | 支持 Ubuntu、Windows 和网页；任务进展、开新任务、发指令 |
@@ -36,8 +38,12 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 | | [opcode][opcode] | Claude Code 会话、自定义智能体和用量面板的桌面 GUI | Claude Code **和** Codex、两家的订阅限额、宠物、手机和远程机器 |
 | | [Vibe Kanban][kanban] | 编排和审阅编程智能体任务的看板 | 一眼可见的桌面伙伴：实时进展、限额、授权请求、一键追加指令 |
 
-<sub>描述均取自各项目自己的页面（2026 年 10 月）。</sub>
+<sub>描述取自各项目自己的页面或所引用的报道（2026 年 10 月）。这些工具在各自的方向上都很出色——VibePortal 的定位是一个本地应用，把宠物、两家的限额、任务控制和手机访问合在一起。</sub>
 
+[codexpets]: https://engadget.com/2162796/openai-introduces-ai-generated-pets-for-its-codex-app
+[buddy]: https://www.mindstudio.ai/blog/what-is-claude-code-buddy-feature
+[clawd]: https://github.com/rullerzhou-afk/clawd-on-desk
+[csp]: https://github.com/moeyui1/claude-status-pet
 [goose]: https://samperson.itch.io/desktop-goose
 [shimeji]: https://kilkakon.com/shimeji/
 [bongo]: https://github.com/ayangweb/BongoCat

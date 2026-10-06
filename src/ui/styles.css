@@ -3850,3 +3850,66 @@ html.pet-page body {
     max-width: 94%;
   }
 }
+
+/* pocket pet on phones: narrow collapsed bubbles, labels stay legible */
+@media (max-width: 760px) {
+  .pet-floating .pet-unit:not(.open) {
+    width: 104px;
+  }
+  .pet-floating .pet-unit:not(.open) .pet-bubble {
+    font-size: 10.5px;
+    padding: 5px 7px;
+  }
+  .pet-floating .pet-unit:not(.open) .pet-feed,
+  .pet-floating .pet-unit:not(.open) .pet-work,
+  .pet-floating .pet-unit:not(.open) .pet-meters,
+  .pet-floating .pet-unit:not(.open) .perm-prompt,
+  .pet-floating .pet-unit:not(.open) .pet-model,
+  .pet-floating .pet-unit:not(.open) .pet-plan {
+    display: none;
+  }
+  .pet-floating.pet-stage {
+    gap: 3px;
+    max-width: calc(100vw - 12px);
+  }
+  .pet-floating .pet-more {
+    padding: 3px 7px;
+    font-size: 11px;
+  }
+  .pet-floating .pet-label .pet-label-repo {
+    display: none;
+  }
+  .pet-floating .pet-side .pet-add {
+    width: 24px;
+    height: 24px;
+    font-size: 15px;
+  }
+  /* an opened bubble becomes a card across the screen, above the pets */
+  .pet-floating .pet-unit.open {
+    width: 104px;
+  }
+  .pet-floating .pet-unit.open .pet-bubble {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(190px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 58vh;
+    overflow: auto;
+    z-index: 45;
+    font-size: 12.5px;
+  }
+  .pet-floating .pet-unit.open .pet-bubble::after {
+    display: none;
+  }
+  .pet-floating .pet-launch {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(190px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 62vh;
+    overflow: auto;
+    z-index: 45;
+  }
+}

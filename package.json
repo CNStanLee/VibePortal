@@ -1,6 +1,6 @@
 {
   "name": "vibeportal",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Cross-platform (Ubuntu / Windows / Web) monitor for Claude & ChatGPT usage, subscription plans and agent tasks, with a desktop pet.",
   "author": "Changhong Li",
   "license": "MIT",

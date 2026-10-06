@@ -63,12 +63,15 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
   const stageRef = useRef<HTMLDivElement>(null);
   const bridge = desktop();
   const cfg = snapshot?.petConfig ?? { enabled: true, size: 140, character: 'duo' as const, codexPet: 'bot' as const };
-  const size = variant === 'floating' ? Math.round(cfg.size * 0.7) : cfg.size;
+  // phones get a pocket-sized pet (and fewer clones, below)
+  const phone = variant === 'floating' && typeof window !== 'undefined' && window.innerWidth <= 760;
+  const size = variant === 'floating' ? Math.round(cfg.size * (phone ? 0.45 : 0.7)) : cfg.size;
 
   const units = useMemo(() => buildUnits(snapshot, cfg.character, cfg.codexPet), [snapshot, cfg.character, cfg.codexPet, dismissTick]);
   const clones = units.filter((u) => u.task);
-  const overflow = clones.length > MAX_CLONES ? clones.length - MAX_CLONES : 0;
-  const shown = clones.length ? clones.slice(0, MAX_CLONES) : units;
+  const maxClones = phone ? 2 : MAX_CLONES;
+  const overflow = clones.length > maxClones ? clones.length - maxClones : 0;
+  const shown = clones.length ? clones.slice(0, maxClones) : units;
 
   // clones that weren't there on the previous renders split off with an animation
   const firstSeen = useRef(new Map<string, number>());
@@ -83,6 +86,8 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
   // pop the panel open for the first unit that needs attention (once per event)
   const announced = useRef(new Set<string>());
   useEffect(() => {
+    // on a phone a bubble popping open by itself would cover the page: the attention ring says enough
+    if (phone) return;
     const u = shown.find((x) => x.attention && x.task);
     if (!u?.task) return;
     const stamp = `${u.task.id}@${u.task.finishedAt ?? u.task.state}`;
