@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SkillDetail, SkillInfo, SkillSource } from '../../shared/types';
+import type { SkillDetail, SkillGraph, SkillInfo, SkillSource } from '../../shared/types';
 import { api } from '../api';
 import { fmt, useT, type Dict } from '../i18n';
 import { relTime, shortPath } from '../format';
+import { SkillMap } from './SkillMap';
 
 type Filter = 'all' | 'library' | 'agents' | 'project';
 const SRC_LABEL: Record<SkillSource, string> = { library: 'VibePortal', claude: 'Claude Code', codex: 'Codex', agents: '.agents', project: '' };
@@ -19,6 +20,16 @@ export function SkillsPage({ onUse }: { onUse: (ids: string[]) => void }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [sel, setSel] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [graph, setGraph] = useState<SkillGraph | null>(null);
+  // the knowledge map by default; the plain list is a click away (remembered per browser)
+  const [view, setViewState] = useState<'map' | 'list'>(() => (localStorage.getItem('vp.skillView') === 'list' ? 'list' : 'map'));
+  const setView = (v: 'map' | 'list') => {
+    setViewState(v);
+    localStorage.setItem('vp.skillView', v);
+  };
+  useEffect(() => {
+    api.skillGraph().then(setGraph, () => {});
+  }, []);
 
   const load = (fresh = false) =>
     api
@@ -56,9 +67,19 @@ export function SkillsPage({ onUse }: { onUse: (ids: string[]) => void }) {
       <section className="card">
         <header className="card-head">
           <h2>{t.skills}</h2>
-          <button className="btn primary" onClick={() => setCreating(true)}>
-            + {t.newSkill}
-          </button>
+          <div className="skills-head-actions">
+            <div className="seg" role="tablist">
+              <button role="tab" aria-selected={view === 'map'} onClick={() => setView('map')}>
+                🗺 {t.mapView}
+              </button>
+              <button role="tab" aria-selected={view === 'list'} onClick={() => setView('list')}>
+                ☰ {t.listView}
+              </button>
+            </div>
+            <button className="btn primary" onClick={() => setCreating(true)}>
+              + {t.newSkill}
+            </button>
+          </div>
         </header>
         <p className="muted small">{t.skillsHelp}</p>
         <div className="skills-bar">
@@ -84,6 +105,16 @@ export function SkillsPage({ onUse }: { onUse: (ids: string[]) => void }) {
         />
       )}
 
+      {view === 'map' ? (
+        <>
+          <SkillMap skills={shown} graph={graph} onGraph={setGraph} selected={sel} onSelect={setSel} query={query} />
+          {current && (
+            <div className="skill-detail-wrap">
+              <SkillView key={current.id} skill={current} onUse={onUse} onChanged={() => void load(true)} />
+            </div>
+          )}
+        </>
+      ) : (
       <div className="skills-layout">
         <ul className="skill-list" aria-label={t.skills}>
           {skills === null && !error && <li className="muted small">…</li>}
@@ -109,6 +140,7 @@ export function SkillsPage({ onUse }: { onUse: (ids: string[]) => void }) {
         </ul>
         <div className="skill-detail-wrap">{current ? <SkillView key={current.id} skill={current} onUse={onUse} onChanged={() => void load(true)} /> : <section className="card muted small">{t.pickSkill}</section>}</div>
       </div>
+      )}
     </div>
   );
 }

@@ -377,6 +377,18 @@ export class ActionRunner {
     }
   }
 
+  /** One headless question to a (small) Claude model, outside any repo, nothing persisted; the reply text. */
+  async ask(prompt: string, opts: { claudeBin: string; model: string; timeoutMs?: number }): Promise<string> {
+    const bin = resolveBin('claude', opts.claudeBin);
+    if (!bin) throw httpError(501, 'Claude Code CLI not found — install it or set "claudeBin" in config.json');
+    const out = await runCapture(bin, ['-p', '--model', opts.model, '--output-format', 'json', '--no-session-persistence'], prompt, suggestDir(), opts.timeoutMs ?? 240_000);
+    try {
+      return JSON.parse(out).result ?? out;
+    } catch {
+      return out;
+    }
+  }
+
   /** Ask Claude (headless, no tools, nothing persisted) for up to three next steps. */
   async suggest(task: TaskInfo, ctx: TaskContext, opts: { claudeBin: string; model: string; lang: 'zh' | 'en' }): Promise<string[]> {
     const bin = resolveBin('claude', opts.claudeBin);

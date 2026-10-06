@@ -512,6 +512,28 @@ export interface SkillInfo {
   installedCopy?: boolean;
 }
 
+/** a line in both UI languages */
+export interface L10n {
+  zh: string;
+  en: string;
+}
+
+/**
+ * The skills as a knowledge map, organized by a small model: a tree of topics,
+ * a one-line summary per topic and skill, and which skills build on or go with
+ * which. Kept in ~/.vibeportal/skill-graph.json.
+ */
+export interface SkillGraph {
+  generatedAt: string;
+  model: string;
+  /** the skills it was made from (newer or removed skills mark it stale) */
+  skillIds: string[];
+  topics: { id: string; parent?: string; name: L10n; summary: L10n }[];
+  skills: { id: string; topic: string; summary: L10n }[];
+  /** depends: `from` builds on `to`; related: they go together */
+  links: { from: string; to: string; kind: 'depends' | 'related'; note?: L10n }[];
+}
+
 export interface SkillDetail extends SkillInfo {
   body: string;
   files: string[];

@@ -327,6 +327,13 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         if (req.method === 'GET') return json(res, 200, monitor.skills.list(url.searchParams.has('fresh')));
         if (req.method === 'POST') return json(res, 200, monitor.skills.create((await readJson(req)) ?? {}));
       }
+      if (p === '/api/skills/graph') {
+        if (req.method === 'GET') return json(res, 200, monitor.skillGraph.get());
+        if (req.method === 'POST') {
+          const g = await monitor.organizeSkills().catch((e: Error & { status?: number }) => e);
+          return g instanceof Error ? json(res, g.status ?? 500, { error: g.message }) : json(res, 200, g);
+        }
+      }
       const sk = /^\/api\/skills\/([0-9a-f]{12})(\/install|\/archive)?$/.exec(p);
       if (sk) {
         const id = sk[1];

@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
     if (prepared === lang + theme) return;
     const p = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
     await p.loadURL(`${ui}?demo`);
-    await p.webContents.executeJavaScript(`localStorage.setItem('vp.lang','${lang}'); localStorage.setItem('vp.theme','${theme}'); localStorage.removeItem('vp.petPos2'); 1`);
+    await p.webContents.executeJavaScript(`localStorage.setItem('vp.lang','${lang}'); localStorage.setItem('vp.theme','${theme}'); localStorage.removeItem('vp.petPos2'); localStorage.removeItem('vp.skillView'); 1`);
     p.destroy();
     prepared = lang + theme;
   };
@@ -75,6 +75,8 @@ app.whenReady().then(async () => {
     await shoot({ name: `farm${sfx}`, hash: '/farm', lang, height: 1500, clip: `(() => { const r = document.querySelectorAll('.farm > section')[2].getBoundingClientRect(); return { x: 0, y: 0, width: 1440, height: Math.ceil(r.bottom + 16) }; })()` });
     // a ten-draw on the reel, just after the last row stopped
     await shoot({ name: `farm-spin${sfx}`, hash: '/farm', lang, width: 760, height: 900, js: `document.querySelector('.farm-ten').click(); 1`, wait: 6300, clip: box('.modal', 0) });
+    // the skills as a knowledge map, one skill picked
+    await shoot({ name: `skills${sfx}`, hash: '/skills', lang, js: `document.querySelectorAll('.map-skill')[0].click(); document.querySelector('.skill-map').scrollIntoView(); 1`, clip: box('.skill-map', 8) });
     // the share card, as it goes out on LinkedIn / X / a README
     await shoot({ name: `farm-card${sfx}`, hash: '/farm', lang, js: `document.querySelector('.social-card-preview').scrollIntoView({ block: 'center' }); 1`, wait: 900, clip: box('.social-card-preview svg', 0) });
     // the pet stage on its own, as it floats on the desktop

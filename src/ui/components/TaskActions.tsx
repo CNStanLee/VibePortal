@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { TaskContext, TaskInfo } from '../../shared/types';
-import { api, desktop, dismissTask, runOverride } from '../api';
+import { api, atTheDesk, dismissTask, runOverride } from '../api';
 
 /** A phone / another computer: the VS Code hand-off would only fill in text on this machine's screen. */
-const remoteViewer = () => !desktop() && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 import { useT } from '../i18n';
 
 /** A task, or the background run that took its conversation over (queued instructions). */
@@ -69,7 +68,7 @@ export function TaskActions({
   const vscodeClaude = task.kind === 'claude-code' && task.alive && task.ide === 'vscode';
   const vscodeCodex = task.kind === 'codex' && task.ide === 'vscode';
   // away from the desk, an instruction has to actually run: default to the background run there
-  const away = remoteViewer();
+  const away = !atTheDesk();
   const handoffFirst = (vscodeClaude || vscodeCodex) && !away;
   // a background run that is still busy takes the instruction as a follow-up for when its turn ends
   const busyRun = task.kind === 'dispatch' && (task.state === 'running' || task.state === 'waiting');
@@ -226,10 +225,7 @@ export function TaskActions({
           )}
           {away && (vscodeClaude || vscodeCodex) && (
             <div className="muted tiny">
-              {vscodeClaude ? t.awayClaudeNote : t.awayCodexNote}{' '}
-              <button type="button" className="link" disabled={!text.trim() || !!busy} onClick={() => void toVscode()}>
-                {t.handoffDesktop}
-              </button>
+              {vscodeClaude ? t.awayClaudeNote : t.awayCodexNote}
             </div>
           )}
           {forked && !vscodeClaude && <div className="muted tiny">{t.forkNote}</div>}
@@ -241,7 +237,8 @@ export function TaskActions({
             📜 {t.fullHistory}
           </button>
         )}
-        {(task.kind === 'claude-code' || task.kind === 'codex' || (task.kind === 'dispatch' && task.sessionId)) && !task.host && (
+        {/* VS Code and the file manager open on the machine itself: no use from a phone or another computer */}
+        {!away && (task.kind === 'claude-code' || task.kind === 'codex' || (task.kind === 'dispatch' && task.sessionId)) && !task.host && (
           <button className="btn ghost" onClick={() => void api.openInVscode(task.id).then(() => setMsg(t.openedInVscode), (e) => setMsg((e as Error).message))} title={t.openInVscodeHelp}>
             🧩 {t.openInVscode}
           </button>
@@ -251,7 +248,7 @@ export function TaskActions({
             💡 {busy === 'suggest' ? t.suggesting : t.suggest}
           </button>
         )}
-        {task.cwd && (
+        {!away && task.cwd && (
           <button className="btn ghost" onClick={forked && text.trim() ? copyOpen : () => void api.openTask(task.id).catch((e) => setMsg((e as Error).message))}>
             📂 {forked && text.trim() ? t.copyOpen : t.openRepo}
           </button>

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { addTotals, emptyTotals, type ProviderSnapshot, type QuotaWindow, type Snapshot, type TokenTotals } from '../../shared/types';
+import { DAYS_PER_MONTH, planMonthlyUsd } from '../../shared/plans';
 import { fmt, useT } from '../i18n';
-import { api } from '../api';
+import { api, atTheDesk } from '../api';
 import { EditorGlyph, ForgeMark } from './Brand';
 import { fmtDuration, fmtTokens, fmtUsd, relTime, shortPath } from '../format';
 
@@ -82,6 +83,26 @@ export function Analysis({ snapshot }: { snapshot: Snapshot }) {
   const days = range === 'today' ? 1 : range === '7d' ? 7 : snapshot.historyDays;
   const repoMax = repos[0]?.total.total || 1;
 
+  // what the subscriptions save: the same usage at API list prices, less the plan's fee for the same days
+  const plans = useMemo(() => {
+    const cut30 = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 29);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+    const cutoff = rangeCutoff(range);
+    return providers.map((p) => {
+      const fee = planMonthlyUsd(p.plan);
+      // per model, like the cost tile: the same numbers either way
+      const sum = (from: string) => p.daily.filter((d) => d.date >= from).reduce((n, d) => n + Object.values(d.byModel).reduce((m, x) => m + x.cost, 0), 0);
+      return { p, fee, api30: sum(cut30), apiRange: sum(cutoff), unpriced: p.unpricedModels.length > 0 };
+    });
+  }, [providers, range]);
+  const counted = plans.filter((x) => x.fee !== undefined && x.apiRange > 0);
+  const feeRange = counted.reduce((n, x) => n + (x.fee! * days) / DAYS_PER_MONTH, 0);
+  const apiRange = counted.reduce((n, x) => n + x.apiRange, 0);
+  const saved = apiRange - feeRange;
+
   return (
     <div className="analysis">
       <div className="analysis-head">
@@ -96,11 +117,58 @@ export function Analysis({ snapshot }: { snapshot: Snapshot }) {
 
       <div className="tiles">
         <Tile label={t.total} value={fmtTokens(all.total)} sub={`${fmtTokens(all.output)} ${t.output}`} />
+        <Tile
+          label={saved >= 0 ? t.planSaved : t.planOverpaid}
+          value={counted.length ? fmtUsd(Math.abs(saved)) : '—'}
+          sub={counted.length ? fmt(t.planSavedSub, { api: fmtUsd(apiRange), fee: fmtUsd(feeRange) }) : t.planNoPrice}
+        />
         <Tile label={t.estCost} value={fmtUsd(all.cost)} sub={unpriced.size ? `${unpriced.size} ${lang === 'zh' ? '个模型无价格' : 'models unpriced'}` : undefined} />
         <Tile label={t.cacheHit} value={`${Math.round(cacheHit * 100)}%`} sub={`${fmtTokens(all.cacheRead)} ${t.cacheRead}`} />
         <Tile label={t.burnRate} value={`${fmtTokens(burn)}`} sub={t.perHourTok} />
         <Tile label={t.avgDaily} value={fmtTokens(all.total / days)} sub={fmtUsd(all.cost / days)} />
       </div>
+
+      {plans.some((x) => x.p.plan) && (
+        <section className="card">
+          <h2>{t.planVsApi}</h2>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>{t.planCol}</th>
+                  <th className="num">{t.planFee}</th>
+                  <th className="num">{t.planApi30}</th>
+                  <th className="num">{t.planSaved30}</th>
+                  <th className="num">{t.planRatio}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans
+                  .filter((x) => x.p.plan)
+                  .map(({ p, fee, api30, unpriced }) => {
+                    const known = fee !== undefined && api30 > 0;
+                    const diff = known ? api30 - fee! : 0;
+                    return (
+                      <tr key={p.provider}>
+                        <td>
+                          <b>{p.plan!.name}</b>
+                        </td>
+                        <td className="num">{fee === undefined ? '—' : `${fmtUsd(fee)}${t.perMonth}`}</td>
+                        <td className="num">
+                          {api30 > 0 ? fmtUsd(api30) : <span className="muted tiny">{unpriced ? t.planUnpriced : '—'}</span>}
+                          {api30 > 0 && unpriced && <div className="muted tiny">{t.planPartly}</div>}
+                        </td>
+                        <td className={`num ${known ? (diff >= 0 ? 'good' : 'bad') : ''}`}>{known ? `${diff >= 0 ? '' : '−'}${fmtUsd(Math.abs(diff))}` : '—'}</td>
+                        <td className="num">{known && fee! > 0 ? `×${(api30 / fee!).toFixed(1)}` : '—'}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted tiny">{t.planVsApiNote}</p>
+        </section>
+      )}
 
       <section className="card">
         <h2>{t.forecasts}</h2>
@@ -170,6 +238,7 @@ export function Analysis({ snapshot }: { snapshot: Snapshot }) {
                             <ForgeMark forge={r.forge} />
                           </a>
                         )}
+                        {atTheDesk() && (
                         <button
                           className="icon-btn"
                           title={t.openEditor}
@@ -178,6 +247,7 @@ export function Analysis({ snapshot }: { snapshot: Snapshot }) {
                         >
                           <EditorGlyph />
                         </button>
+                        )}
                       </div>
                     </div>
                   </td>

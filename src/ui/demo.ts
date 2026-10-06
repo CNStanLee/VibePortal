@@ -13,6 +13,7 @@ import type {
   ResourceSnapshot,
   ServerInfo,
   SkillDetail,
+  SkillGraph,
   SkillInfo,
   Snapshot,
   TaskInfo,
@@ -318,6 +319,32 @@ const skills: SkillInfo[] = [
   { id: 'aaaaaaaaaaa2', slug: 'flaky-test-hunt', name: 'flaky-test-hunt', description: 'Reproduce and fix flaky tests: rerun with seeds, bisect, isolate shared state.', source: 'library', path: '/home/dev/.vibeportal/skills/flaky-test-hunt/SKILL.md', dir: '/home/dev/.vibeportal/skills/flaky-test-hunt', updatedAt: ago(7200), origin: '/home/dev/src/acme-web/.claude/skills/flaky-test-hunt', archivedAt: ago(7200) },
   { id: 'aaaaaaaaaaa3', slug: 'gpu-profiling', name: 'gpu-profiling', description: 'Profile CUDA kernels with nsys / ncu and summarise the hot spots.', source: 'project', project: '/home/dev/src/ml-pipeline', path: '/home/dev/src/ml-pipeline/.claude/skills/gpu-profiling/SKILL.md', dir: '/home/dev/src/ml-pipeline/.claude/skills/gpu-profiling', updatedAt: ago(86_400) },
   { id: 'aaaaaaaaaaa4', slug: 'pdf', name: 'pdf', description: 'Read, merge, split and fill PDF files.', source: 'claude', managed: true, path: '/home/dev/.claude/skills/pdf/SKILL.md', dir: '/home/dev/.claude/skills/pdf', updatedAt: ago(5 * 86_400) },
+  ...(
+    [
+      ['b1', 'pr-review', 'Review a pull request: risky diffs first, tests, naming, a summary comment.', 'library'],
+      ['b2', 'changelog', 'Write the changelog entry from merged PRs since the last tag.', 'library'],
+      ['b3', 'semver-bump', 'Pick the next version from the changes and bump it everywhere.', 'library'],
+      ['b4', 'ci-debug', 'Find why CI fails: read the logs, reproduce locally, fix the flaky step.', 'claude'],
+      ['b5', 'e2e-tests', 'Write Playwright end-to-end tests for a user flow.', 'claude'],
+      ['b6', 'docker-build', 'Build small, cached Docker images for the service.', 'codex'],
+      ['b7', 'k8s-deploy', 'Roll a build out to Kubernetes with a canary and a rollback plan.', 'codex'],
+      ['b8', 'dataset-clean', 'Clean and validate a training dataset: dedupe, schema checks, splits.', 'project'],
+      ['b9', 'cuda-kernels', 'Write and tune CUDA kernels for the hot loops.', 'project'],
+      ['ba', 'xlsx', 'Read, edit and chart spreadsheets.', 'claude'],
+      ['bb', 'api-docs', 'Document every endpoint with runnable examples.', 'library'],
+    ] as const
+  ).map(([k, slug, description, source]): SkillInfo => ({
+    id: `aaaaaaaaaa${k}`,
+    slug,
+    name: slug,
+    description,
+    source,
+    ...(source === 'project' ? { project: '/home/dev/src/ml-pipeline' } : {}),
+    ...(source === 'claude' && slug === 'xlsx' ? { managed: true } : {}),
+    path: `/home/dev/.vibeportal/skills/${slug}/SKILL.md`,
+    dir: `/home/dev/.vibeportal/skills/${slug}`,
+    updatedAt: ago(86_400 * 2),
+  })),
 ];
 
 const info: ServerInfo = {
@@ -392,6 +419,7 @@ export function demoCall(method: string, path: string, body?: unknown): unknown 
   if (p === 'api/launch/options') return launch;
   if (p === 'api/resources') return resources();
   if (p === 'api/skills') return skills;
+  if (p === 'api/skills/graph') return demoSkillGraph();
   if (/^api\/skills\/\w+$/.test(p)) {
     const s = skills.find((x) => p.endsWith(x.id)) ?? skills[0];
     return { ...s, body: `---\nname: ${s.name}\ndescription: ${s.description}\n---\n\n# ${s.name}\n\n1. …\n2. …\n`, files: ['SKILL.md'] } satisfies SkillDetail;
@@ -521,3 +549,55 @@ function demoFriends(): FriendFarm[] {
 export function demoPublicFarm(): PublicFarm {
   return demoFriends()[0].farm!;
 }
+
+// ── the skills as a knowledge map, as the small model would organize them ──
+function demoSkillGraph(): SkillGraph {
+  const id = (k: string) => `aaaaaaaaa${k.length === 2 ? 'a' : 'aa'}${k}`;
+  const L = (en: string, zh: string) => ({ en, zh });
+  const sk = (k: string, topic: string, en: string, zh: string) => ({ id: id(k), topic, summary: L(en, zh) });
+  return {
+    generatedAt: ago(3 * 3600),
+    model: 'haiku',
+    skillIds: skills.map((s) => s.id),
+    topics: [
+      { id: 'ship', name: L('Shipping', '发布交付'), summary: L('From a reviewed PR to a release in production', '从代码审查到上线发布') },
+      { id: 'ship-rel', parent: 'ship', name: L('Releases', '版本发布'), summary: L('Versions, changelogs and tags', '版本号、更新日志和打标签') },
+      { id: 'ship-ops', parent: 'ship', name: L('Deploy', '部署'), summary: L('Images and rollouts', '镜像构建与灰度上线') },
+      { id: 'quality', name: L('Quality', '质量保障'), summary: L('Tests that catch bugs before users do', '在用户之前发现问题') },
+      { id: 'ml', name: L('ML & GPU', '机器学习与 GPU'), summary: L('Data in, fast kernels out', '从数据清洗到 GPU 调优') },
+      { id: 'docs', name: L('Docs & files', '文档与文件'), summary: L('Writing and reading documents', '写文档、读写各类文件') },
+    ],
+    skills: [
+      sk('1', 'ship-rel', 'The release runbook end to end', '完整的发布流程清单'),
+      sk('b2', 'ship-rel', 'Changelog from merged PRs', '根据合并的 PR 写更新日志'),
+      sk('b3', 'ship-rel', 'Pick and bump the next version', '确定并更新版本号'),
+      sk('b1', 'quality', 'Review risky diffs first', '优先审查高风险改动'),
+      sk('2', 'quality', 'Pin down and fix flaky tests', '定位并修复不稳定的测试'),
+      sk('b4', 'quality', 'Why CI is red, and the fix', '找出 CI 失败原因并修复'),
+      sk('b5', 'quality', 'End-to-end tests for user flows', '为用户流程写端到端测试'),
+      sk('b6', 'ship-ops', 'Small, cached Docker images', '构建小而可缓存的镜像'),
+      sk('b7', 'ship-ops', 'Canary rollout with a way back', '灰度上线并可回滚'),
+      sk('b8', 'ml', 'A clean, validated dataset', '清洗并校验训练数据'),
+      sk('b9', 'ml', 'Tuned CUDA kernels for hot loops', '为热点循环调优 CUDA 内核'),
+      sk('3', 'ml', 'Find GPU hot spots with nsys', '用 nsys 找出 GPU 瓶颈'),
+      sk('bb', 'docs', 'Every endpoint, with examples', '为每个接口写可运行示例'),
+      sk('4', 'docs', 'Read, merge and fill PDFs', '读取、合并、填写 PDF'),
+      sk('ba', 'docs', 'Spreadsheets: edit and chart', '编辑表格、生成图表'),
+    ],
+    links: [
+      { from: id('1'), to: id('b3'), kind: 'depends', note: L('a release needs the new version', '发布前要先定版本号') },
+      { from: id('1'), to: id('b2'), kind: 'depends', note: L('the release notes come from the changelog', '发布说明来自更新日志') },
+      { from: id('1'), to: id('b4'), kind: 'depends', note: L('only ship a green build', '只发布 CI 通过的版本') },
+      { from: id('b7'), to: id('b6'), kind: 'depends', note: L('deploys roll out the image', '部署的是构建好的镜像') },
+      { from: id('b7'), to: id('1'), kind: 'depends', note: L('roll out a cut release', '上线已发布的版本') },
+      { from: id('b4'), to: id('2'), kind: 'related', note: L('flaky tests turn CI red', '不稳定的测试常让 CI 失败') },
+      { from: id('b1'), to: id('b5'), kind: 'related', note: L('reviews ask for tests', '审查时会要求补测试') },
+      { from: id('b9'), to: id('3'), kind: 'depends', note: L('tune what the profile shows', '根据性能分析结果调优') },
+      { from: id('3'), to: id('b8'), kind: 'related', note: L('profile on the real data', '用真实数据做性能分析') },
+      { from: id('b2'), to: id('b1'), kind: 'related', note: L('reviewed PRs feed the changelog', '审查过的 PR 写进更新日志') },
+      { from: id('bb'), to: id('b2'), kind: 'related', note: L('docs change with each release', '文档随版本更新') },
+      { from: id('ba'), to: id('b8'), kind: 'related', note: L('datasets often come as spreadsheets', '数据集常以表格形式出现') },
+    ],
+  };
+}
+

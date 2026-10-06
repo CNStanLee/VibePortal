@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
 import type { FarmView } from '../shared/farm';
 import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
-import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillInfo, Snapshot, TaskContext } from '../shared/types';
+import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';
 
 export interface Notice {
   title: string;
@@ -98,6 +98,8 @@ declare global {
 }
 
 export const desktop = (): DesktopBridge | undefined => window.vibeportal;
+/** At the machine itself (the desktop app, or a browser on localhost): VS Code and the file manager open here. */
+export const atTheDesk = () => !!desktop() || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 
 const TOKEN_KEY = 'vp.token';
 
@@ -194,6 +196,9 @@ export const api = {
   settings: () => call<PublicSettings>('GET', 'api/settings'),
   saveSettings: (p: SettingsPatch) => call<PublicSettings>('PUT', 'api/settings', p),
   hookSnippet: () => call<unknown>('GET', 'api/hooks/snippet'),
+  skillGraph: () => call<SkillGraph | null>('GET', 'api/skills/graph'),
+  /** organizes the skills into a knowledge map with the small model (takes a minute or two) */
+  organizeSkills: () => call<SkillGraph>('POST', 'api/skills/graph', {}),
   deleteTask: (id: string) => call<{ ok: boolean }>('DELETE', `api/tasks/${encodeURIComponent(id)}`),
   /** archive the inactive conversations (or just these); restore brings them back (all without ids) */
   archiveTasks: (body: { ids?: string[]; restore?: boolean }) => call<{ ok: boolean; n: number }>('POST', 'api/tasks-archive', body),

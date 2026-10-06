@@ -90,6 +90,7 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 <img src="docs/images/m-settings-zh.png" width="250" alt="手机：公网链接设置">
 </p>
 <p align="center"><img src="docs/images/farm-zh.png" alt="螃蟹农场：用 Token 抽种子，在田地里种植，植物摆上展示柜或收进仓库"></p>
+<p align="center"><img src="docs/images/skills-zh.png" alt="技能知识图谱：带一句话描述的主题知识树，以及技能之间的依赖关系图"></p>
 <p align="center"><img src="docs/images/scenes.png" alt="小螃蟹的小剧场：写代码、炒菜、看书、搜索、吃白米饭、喝茶"></p>
 
 <sub>截图使用内置的演示数据（`?demo`）；用 `npm run screenshots` 重新生成。</sub>
@@ -112,13 +113,13 @@ Claude Code 和 Codex 一处看全——每个会话的实时进展、带“用�
 | **订阅计划** | Claude（Pro / Max 5x / Max 20x / Team…）与 ChatGPT（Plus / Pro / Pro Lite / Team…）当前计划、续费日期（服务商不返回时按订阅开始日逐月推算并标注“预计”）、ChatGPT **重置券** 数量；每张卡片带 **登录 / 用量页面 / API 控制台** 链接 |
 | **限额监控** | Claude 5 小时会话、每周（全部模型 / 按模型）；ChatGPT 主/次窗口及额外额度池。**每个窗口单独显示自己的重置时间**（各窗口、两家之间互不共享）；5 小时窗口始终显示，计划没有该窗口时明确标注 |
 | **用完预测** | 记录每个窗口的用量曲线，按“近 2 小时速度 / 本窗口平均速度”推算何时达到 100%，并判断是否会在重置前用完（会时发通知、宠物报警） |
-| **分析** | 各仓库（按 git 根目录归并）的 Claude / Codex Token、占比、API 等价成本、14 天趋势、最近活跃；各模型的输入 / 输出 / 缓存明细；缓存命中率、消耗速度、日均 |
+| **分析** | 各仓库（按 git 根目录归并）的 Claude / Codex Token、占比、API 等价成本、14 天趋势、最近活跃；各模型的输入 / 输出 / 缓存明细；缓存命中率、消耗速度、日均；**订阅 vs 直接调用 API**：近 30 天的用量按 API 官方标价要花多少、对比方案月费，订阅省了多少钱、回本几倍 |
 | **任务监控** | 自动发现 Claude Code 会话与 Codex 任务（运行中 / 等待你处理 / 空闲 / 完成），显示每个任务的工作负载（新 Token 速率、上下文占用、会话累计）；支持 Claude Code Hooks 即时推送；脚本可通过 HTTP 上报自定义任务；**一键归档不活跃的对话**：空闲 / 完成 / 失败的对话一次收进折叠的“已归档”列表（各设备共享），收起的对话一有新消息就自动回来 |
 | **下一步动作** | 任务完成或需要你时，宠物会问“下一步？”：查看最近回复、让 Claude 给出建议、发送新指令（在 VS Code 中打开的会话会把指令交给那个会话本身，历史保持同一份）、打开仓库。**还在忙的后台运行也能追加指令**：指令排队，当前这轮一结束就在同一个会话里接着跑；卡片会停在执行你指令的那个运行上，后台运行和排队的指令**在 VibePortal 重启后继续** |
 | **手机 / 网页继续** | 一键开启官方 Remote Control：Claude Code 为某个文件夹生成 claude.ai/code 链接和二维码；Codex 以远程控制模式启动守护进程并给出 ChatGPT App 配对码 |
 | **桌面宠物** | Claude 像素小螃蟹 + Codex 圆头终端小机器人（屏幕就是它的脸）；两边都可以换成奶蛙，Codex 还可以换成鲸鱼娘。脚下用像素字显示正在忙什么（COOKING… / FORGING… / CRAFTING…）和所在仓库；状态框显示当前模型与强度，可为下一条指令切换。多任务时 **分身**：每个任务一只（Claude Code → 螃蟹，Codex → 小机器人），各自显示状态、负载并可单独下指令；无任务时显示两家的限额。头顶对话框 **同步进展**：计划进度（TodoWrite / Codex update_plan）、最近的工具调用和 Agent 的话，中英双语标签，直接解析本地日志与 Hooks，不额外调用模型。小螃蟹会按正在做的事 **演小剧场**：改代码时敲电脑、跑命令时炒菜、读文件戴眼镜看书、搜索拿放大镜、等待时喝茶、闲着吃白米饭。宠物右下角三根 **彩色小条**（5 小时 / 每周 / 最紧张的其它窗口）不点开也能看个大概。拖动移动、单击展开、双击打开面板、右键菜单 |
 | **新任务** | 顶栏“＋ 新任务”或宠物旁的 ＋：选择仓库 / 本地 VS Code 项目（读取 VS Code 的最近文件夹与当前打开的窗口）、Claude Code 或 Codex、模型和强度，后台开启新会话；新任务出现时宠物**分身**登场 |
-| **技能** | 列出 VibePortal 技能库、Claude Code / Codex 的用户技能和各仓库的技能文件夹（名称和描述直接读 SKILL.md，不调用模型）；任务中写出的 SKILL.md 自动归档到 `~/.vibeportal/skills`；可手动新建 / 编辑，一键安装到 Claude Code 或 Codex，开新任务时勾选技能（指令里附上 SKILL.md 路径，由 Agent 自己读取） |
+| **技能** | 列出 VibePortal 技能库、Claude Code / Codex 的用户技能和各仓库的技能文件夹（名称和描述直接读 SKILL.md，不调用模型）；任务中写出的 SKILL.md 自动归档到 `~/.vibeportal/skills`；可手动新建 / 编辑，一键安装到 Claude Code 或 Codex，开新任务时勾选技能（指令里附上 SKILL.md 路径，由 Agent 自己读取）。以可交互的**知识图谱**展示：主题知识树 + 可缩放的聚类图；点“整理知识树”让小模型（即“建议下一步”用的模型）把技能归入主题、各写一句话描述（随界面语言中 / 英），并找出技能之间的依赖与关联；悬停高亮关联，点击打开技能 |
 | **资源** | 本机（或远程机器）的 CPU（每核）、内存 / 交换区、NVIDIA GPU（利用率、显存、温度、功耗、GPU 进程）、各磁盘、占用最高的进程（标出 Claude / Codex 进程），近 10 分钟趋势和自动分析；只在页面打开时采样 |
 | **远程** | 一键允许局域网 / 手机访问（显示地址和二维码）；**访问密码**（设置后链接和二维码不再含令牌，扫码后密码登录）；**公网访问**：隧道——**固定地址**用 ngrok（免费账号自带固定域名）或 Tailscale Funnel；临时地址用 localhost.run / Pinggy（走系统自带的 ssh，无需安装和账号）或 Cloudflare 快速隧道——或填写自己的公网地址，必须先设置密码；可添加其它机器上的 VibePortal（如 GPU 服务器），其任务和限额合并显示，动作也会转发过去；局域网内自动发现 |
 | **螃蟹农场** | 烧掉的 Token 换种子抽卡（50 万一抽，十连保底稀有）。**6 种品质、27 种像素植物**，从 15 分钟的雏菊到要长三天的世界树，10 种颜色，还有 0.1% 的**神话**品质和专属极光特效。种子在 3×3 田地里长成植物，进展示柜、仓库和图鉴。纯观赏——见[螃蟹农场](#螃蟹农场) |
@@ -185,7 +186,7 @@ VibePortal 只读取本机已有的数据，不需要额外登录：
 - **主页**——名字、一句话介绍，以及 GitHub（用它的头像）、LinkedIn、X 和个人网站，农场出现的地方都会显示。**从 GitHub 一键导入**：读取你的 GitHub 公开主页（填写的用户名，或本机 `gh` 命令行登录的账号），自动填好名字、简介、网站，以及你在 GitHub 上关联的 X / LinkedIn，不需要任何授权。
 - **公开农场**（默认关闭）——给农场一个猜不到的链接 `https://<你的公网地址>/#/visit/<id>`。拿到链接的人不用登录就能看到你的主页、最好的植物和田地（本机其他信息一概不公开），以及 VibePortal 是什么、怎么加你为农友，还能**浇水**：每株在长的植物提前 20 分钟成熟，每位访客每天一次，每天最多 30 次。“换新链接”会让旧链接失效。需要一个别人能访问的地址（设置 → 远程 → 从互联网访问），否则链接只在你的网络里能打开。
 - **好友**——粘贴好友的农场链接，你的 VibePortal 会从他们的机器读取公开卡片，并和你一起排进排行榜（普通 1、优良 2、稀有 5、史诗 12、传说 30、神话 100 分）。可以直接帮他们浇水，你的到访会出现在他们那里，并附上回访你农场的链接。
-- **分享**——分享卡片（你的植物、分数、图鉴、Token、农友和访客数、账号，以及一条 VibePortal 介绍和下载地址的横幅）生成 PNG：手机分享面板（LinkedIn、微信……）、下载，或**发到 LinkedIn / X**：手机上通过分享面板把卡片和配文一起带进 App 的发帖界面；电脑上打开发帖页、配文已填好，卡片图片已复制，粘贴即可（网页链接本身没法附带图片）。公开农场后还可以复制 **GitHub 主页 README 徽章**——实时更新的农场 SVG：
+- **分享**——分享卡片（你的植物、分数、图鉴、Token、农友和访客数、账号，以及一条 VibePortal 介绍、下载地址和仓库二维码的横幅）生成 PNG：手机分享面板（LinkedIn、微信……）、下载，或**发到 LinkedIn / X**：手机上通过分享面板把卡片和配文一起带进 App 的发帖界面；电脑上打开发帖页、配文已填好，卡片图片已复制，粘贴即可（网页链接本身没法附带图片）。公开农场后还可以复制 **GitHub 主页 README 徽章**——实时更新的农场 SVG：
 
   ```markdown
   [![我的螃蟹农场](https://<你的公网地址>/api/public/farm/<id>/card.svg?lang=zh)](https://<你的公网地址>/#/visit/<id>)
@@ -292,6 +293,7 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 | GET / POST | `/api/skills` | 技能列表 / 新建 `{name, description, body}` |
 | GET / PUT / DELETE | `/api/skills/:id` | 查看 / 修改 SKILL.md `{content}` / 删除（仅技能库） |
 | POST / DELETE | `/api/skills/:id/install?target=claude\|codex` | 安装 / 卸载到 Claude Code 或 Codex |
+| GET / POST | `/api/skills/graph` | 知识图谱 / 用小模型重新整理（约一两分钟） |
 | POST | `/api/login` | 密码登录 `{password}` → 会话令牌（无需令牌） |
 | POST | `/api/login/google` | Google 登录 `{credential}`（ID token）→ 会话令牌 |
 | POST | `/api/google/bind` | 把已登录的 Google 账号绑定到本机（仅本机） |
@@ -347,7 +349,8 @@ src/
   shared/farm.ts             螃蟹农场规则（抽卡、品种、生长、收获）
   shared/farmArt.ts          像素植物（16×16 点阵）
   shared/farmSocial.ts       农场主页、公开卡片、农场链接
-  shared/farmCard.ts         分享卡片 / README 徽章（SVG）
+  shared/farmCard.ts         分享卡片 / README 徽章（SVG，带仓库二维码）
+  shared/plans.ts            订阅方案标价（订阅 vs API）
   core/                      数据采集（Node）
     collectors/claudeLocal.ts         Claude Code 会话记录 → Token 统计
     collectors/claudeSubscription.ts  Claude 计划与限额
@@ -365,6 +368,7 @@ src/
     resources.ts             本机资源采样（CPU / 内存 / GPU / 磁盘 / 进程）
     tunnel.ts                公网隧道（localhost.run / Pinggy / Cloudflare）
     skills.ts                技能发现、自动归档、安装
+    skillGraph.ts            技能知识图谱（由小模型整理）
     officialRemote.ts        官方 Remote Control（claude remote-control / codex remote-control）
     farm.ts / farmSocial.ts  农场及其社交功能（~/.vibeportal/farm*.json）、好友农场
     monitor.ts               轮询调度、快照、通知、宠物心情

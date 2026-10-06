@@ -1,4 +1,5 @@
 import { TaskArchive } from './archive';
+import { SkillGraphStore } from './skillGraph';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { ClaudeLocalCollector } from './collectors/claudeLocal';
@@ -41,6 +42,7 @@ export class Monitor extends EventEmitter {
   readonly actions: ActionRunner;
   readonly resources = new ResourceMonitor();
   readonly archive = new TaskArchive();
+  readonly skillGraph = new SkillGraphStore();
   /** permission prompts of background Claude runs, answered in the UI */
   readonly permissions = new PermissionBroker((p) => {
     if (p) {
@@ -179,6 +181,12 @@ export class Monitor extends EventEmitter {
     // a run whose session isn't known (yet): its CLI output is the history
     const out = task.kind === 'dispatch' ? this.actions.jobOutput(task.id.replace(/^dispatch:/, '')) : undefined;
     return { items: out ? [{ role: 'assistant', text: out.trim() }] : [], truncated: false };
+  }
+
+  /** The skills organized into a knowledge map by the small "suggest" model. */
+  organizeSkills() {
+    const model = this.cfg.suggestModel;
+    return this.skillGraph.organize(this.skills.list(true), (prompt) => this.actions.ask(prompt, { claudeBin: this.cfg.claudeBin, model }), model);
   }
 
   async suggest(task: TaskInfo, lang: 'zh' | 'en') {

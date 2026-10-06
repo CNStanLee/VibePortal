@@ -5,6 +5,7 @@
  */
 import type { Rarity } from './farm';
 import { plantPixels, RAINBOW } from './farmArt';
+import QRCode from 'qrcode';
 import { REPO_URL, type PublicFarm } from './farmSocial';
 
 const RARITY_COLOR: Record<Rarity, string> = {
@@ -33,6 +34,28 @@ function plantRects(species: string, color: PublicFarm['best'][number]['color'])
   return out;
 }
 
+/** The repo's QR code as merged rects (one per run of dark modules), `size` px square, on a white tile. */
+function qrTile(text: string, x: number, y: number, size: number): string {
+  const q = QRCode.create(text, { errorCorrectionLevel: 'M' });
+  const n = q.modules.size;
+  const quiet = 2;
+  const cell = size / (n + quiet * 2);
+  let rects = '';
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; ) {
+      if (!q.modules.get(r, c)) {
+        c++;
+        continue;
+      }
+      let e = c + 1;
+      while (e < n && q.modules.get(r, e)) e++;
+      rects += `<rect x="${(c + quiet) * cell}" y="${(r + quiet) * cell}" width="${(e - c) * cell + 0.05}" height="${cell + 0.05}"/>`;
+      c = e;
+    }
+  }
+  return `<g transform="translate(${x} ${y})"><rect width="${size}" height="${size}" rx="6" fill="#fff" stroke="#e4e2dc"/><g fill="#1f1d1a" shape-rendering="crispEdges">${rects}</g></g>`;
+}
+
 export function farmCardSvg(f: PublicFarm, lang: 'zh' | 'en' = 'en'): string {
   const W = 495;
   const L =
@@ -46,8 +69,8 @@ export function farmCardSvg(f: PublicFarm, lang: 'zh' | 'en' = 'en'): string {
           empty: '还在等第一株植物…',
           social: `👥 农友 ${f.friends ?? 0}  ·  👣 访客 ${f.visitors.length}  ·  💧 今日浇水 ${f.waters.today}/${f.waters.max}`,
           app: 'Claude Code 和 Codex 的桌面宠物',
-          pitch: '烧 token 抽种子种植物 · 加农友，互相串门浇水',
-          get: '免费开源',
+          pitch: '烧 token 抽种子种植物 · 加农友互相串门浇水',
+          get: '免费开源 · 扫码获取',
         }
       : {
           title: '’s crab farm',
@@ -58,8 +81,8 @@ export function farmCardSvg(f: PublicFarm, lang: 'zh' | 'en' = 'en'): string {
           empty: 'Waiting for the first plant…',
           social: `👥 ${f.friends ?? 0} farmer friends  ·  👣 ${f.visitors.length} visitors  ·  💧 ${f.waters.today}/${f.waters.max} waters today`,
           app: 'the desktop pet for Claude Code & Codex',
-          pitch: 'Burn tokens, grow plants · add farmer friends, visit and water their farms',
-          get: 'free & open source',
+          pitch: 'Burn tokens, grow plants · visit & water friends’ farms',
+          get: 'free & open source · scan',
         };
   const name = esc(f.profile.name.slice(0, 28));
   const handles = [f.profile.github && `github.com/${f.profile.github}`, f.profile.linkedin && f.profile.linkedin.replace(/^https:\/\/www\./, ''), f.profile.x && `@${f.profile.x}`]
@@ -68,6 +91,8 @@ export function farmCardSvg(f: PublicFarm, lang: 'zh' | 'en' = 'en'): string {
     .join('  ·  ');
   // the app's banner along the bottom: what VibePortal is and where to get it
   const band = 64;
+  // the repo's QR code sits at the right of the banner, rising a little above it
+  const QR = 78;
   const H = 204 + (handles ? 18 : 0) + band;
   const stats = [
     [L.score, String(f.score)],
@@ -103,5 +128,6 @@ ${handles ? `<text class="s" x="20" y="204">${handles}</text>` : ''}
 <text x="20" y="${H - band + 21}"><tspan class="ba">🦀 VibePortal</tspan><tspan class="bt" dx="6">${esc(L.app)}</tspan></text>
 <text class="bt" x="20" y="${H - band + 38}">${esc(L.pitch)}</text>
 <text x="20" y="${H - band + 55}"><tspan class="bu">${esc(repo)}</tspan><tspan class="bt" dx="6">· ${esc(L.get)}</tspan></text>
+${qrTile(REPO_URL, W - 20 - QR, H - 8 - QR, QR)}
 </svg>`;
 }
