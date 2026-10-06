@@ -3,6 +3,10 @@ import { createContext, useContext } from 'react';
 export type Lang = 'zh' | 'en';
 
 const en = {
+  moreMenu: 'More',
+  themeSystem: 'system',
+  themeDark: 'dark',
+  themeLight: 'light',
   pageCrashed: 'This page ran into a problem.',
   retry: 'Try again',
   office: 'Office',
@@ -697,6 +701,10 @@ const en = {
 export type Dict = Record<keyof typeof en, string>;
 
 const zh: Dict = {
+  moreMenu: '更多',
+  themeSystem: '跟随系统',
+  themeDark: '深色',
+  themeLight: '浅色',
   pageCrashed: '这个页面出错了。',
   retry: '重试',
   office: '办公室',

@@ -6897,3 +6897,103 @@ a.btn {
     grid-column: 1;
   }
 }
+
+/* tabs that don't fit wait in "More" */
+.tab-more {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 1;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  white-space: nowrap;
+}
+.tab-more[aria-expanded='true'] {
+  color: var(--accent);
+}
+.tab-more .tab-ic {
+  display: block;
+}
+.more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.more-menu {
+  position: fixed;
+  z-index: 41;
+  display: grid;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.18);
+  animation: more-in 0.2s var(--ease-out);
+}
+.more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font-weight: 550;
+  text-align: left;
+}
+.more-menu button:hover {
+  background: var(--surface-2);
+}
+.more-menu .tab-ic {
+  display: block;
+}
+.more-menu .count {
+  margin-left: auto;
+}
+.more-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.more-glyph {
+  width: 20px;
+  text-align: center;
+  font-weight: 700;
+}
+@keyframes more-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@media (max-width: 760px) {
+  .tab-more {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 2px 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    border-radius: 10px;
+  }
+  .tab-more .count {
+    position: absolute;
+    top: 1px;
+    right: calc(50% - 20px);
+    margin: 0;
+  }
+}
+@media (max-width: 420px) {
+  .hide-compact {
+    display: none;
+  }
+}

@@ -75,7 +75,15 @@ export function Dashboard() {
   }, [tab]);
   useEffect(() => applyTheme(theme), [theme]);
   const tabsRef = useRef<HTMLElement>(null);
-  useTabPill(tabsRef, tab, lang);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const [moreAt, setMoreAt] = useState<React.CSSProperties | null>(null);
+  // narrow phones: the language and theme switches move into "More"
+  const compact = useMedia('(max-width: 420px)');
+  const fit = useTabFit(tabsRef, lang);
+  // the tabs that fit (the open one always among them); the rest go into "More"
+  const shown = fit >= TABS.length ? TABS : TABS.slice(0, fit).includes(tab) ? TABS.slice(0, fit) : [...TABS.slice(0, Math.max(0, fit - 1)), tab];
+  const hidden = TABS.filter((k) => !shown.includes(k));
+  useTabPill(tabsRef, tab, lang, shown.join());
 
   if (authFailed) return <TokenGate />;
 
@@ -128,8 +136,8 @@ export function Dashboard() {
         </div>
         <nav className="tabs" role="tablist" ref={tabsRef}>
           <span className="tab-pill" aria-hidden />
-          {TABS.map((k) => (
-            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
+          {shown.map((k) => (
+            <button key={k} data-tab={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
               <TabIcon tab={k} />
               <span className="tab-label">{t[k]}</span>
               {k === 'tasks' && running > 0 && (
@@ -139,7 +147,67 @@ export function Dashboard() {
               )}
             </button>
           ))}
+          {(hidden.length > 0 || compact) && (
+            <button
+              ref={moreRef}
+              className="tab-more"
+              aria-haspopup="menu"
+              aria-expanded={!!moreAt}
+              onClick={() => {
+                if (moreAt) return setMoreAt(null);
+                const r = moreRef.current!.getBoundingClientRect();
+                // phones: the menu opens upward from the bottom bar; otherwise below the button
+                setMoreAt(r.top > innerHeight / 2 ? { bottom: innerHeight - r.top + 6, right: 8 } : { top: r.bottom + 6, left: Math.max(8, Math.min(r.left, innerWidth - 228)) });
+              }}
+            >
+              <TabIcon tab="more" />
+              <span className="tab-label">{t.moreMenu}</span>
+              {hidden.includes('tasks') && running > 0 && <span className="count">{running}</span>}
+            </button>
+          )}
         </nav>
+        {moreAt && (
+          <>
+            <div className="more-backdrop" onPointerDown={() => setMoreAt(null)} />
+            <div className="more-menu" role="menu" style={moreAt} onKeyDown={(e) => e.key === 'Escape' && setMoreAt(null)}>
+              {hidden.map((k) => (
+                <button
+                  key={k}
+                  role="menuitem"
+                  onClick={() => {
+                    setTab(k);
+                    setMoreAt(null);
+                  }}
+                >
+                  <TabIcon tab={k} />
+                  <span>{t[k]}</span>
+                  {k === 'tasks' && running > 0 && <span className="count">{running}</span>}
+                </button>
+              ))}
+              {compact && (
+                <>
+                  {hidden.length > 0 && <hr />}
+                  <button role="menuitem" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>
+                    <span className="more-glyph">{lang === 'zh' ? 'EN' : '中'}</span>
+                    <span>{lang === 'zh' ? 'English' : '中文'}</span>
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={(e) => {
+                      const b = e.currentTarget.getBoundingClientRect();
+                      setTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system', { x: b.left + 20, y: b.top + b.height / 2 });
+                    }}
+                  >
+                    <span className="more-glyph">{theme === 'dark' ? '☾' : theme === 'light' ? '☀' : '◐'}</span>
+                    <span>
+                      {t.theme}: {theme === 'dark' ? t.themeDark : theme === 'light' ? t.themeLight : t.themeSystem}
+                    </span>
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        )}
         <div className="actions">
           <button className="btn primary" onClick={() => setLaunching({})} title={t.newTaskTitle}>
             +<span className="hide-sm"> {t.newTask}</span>
@@ -150,11 +218,11 @@ export function Dashboard() {
             </span>
             <span className="hide-sm"> {t.refresh}</span>
           </button>
-          <button className="btn ghost" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} title="Language">
+          <button className="btn ghost hide-compact" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} title="Language">
             {lang === 'zh' ? 'EN' : '中'}
           </button>
           <button
-            className="btn ghost"
+            className="btn ghost hide-compact"
             onClick={(e) => {
               const b = e.currentTarget.getBoundingClientRect();
               setTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system', { x: b.left + b.width / 2, y: b.top + b.height / 2 });
@@ -370,8 +438,9 @@ function TokenGate() {
 }
 
 /** Line icons for the tabs (shown in the phone's bottom bar). */
-function TabIcon({ tab }: { tab: Tab }) {
-  const d: Record<Tab, string> = {
+function TabIcon({ tab }: { tab: Tab | 'more' }) {
+  const d: Record<Tab | 'more', string> = {
+    more: 'M5 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8zM12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8zM19 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z',
     overview: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
     analysis: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     resources: 'M7 7h10v10H7zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3',
@@ -389,7 +458,7 @@ function TabIcon({ tab }: { tab: Tab }) {
 }
 
 /** The selected-tab highlight slides (and stretches) from tab to tab instead of jumping. */
-function useTabPill(ref: React.RefObject<HTMLElement | null>, tab: Tab, lang: Lang) {
+function useTabPill(ref: React.RefObject<HTMLElement | null>, tab: Tab, lang: Lang, shown: string) {
   useLayoutEffect(() => {
     const nav = ref.current;
     const pill = nav?.querySelector<HTMLElement>('.tab-pill');
@@ -411,7 +480,7 @@ function useTabPill(ref: React.RefObject<HTMLElement | null>, tab: Tab, lang: La
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [ref, tab, lang]);
+  }, [ref, tab, lang, shown]);
 }
 
 function readTheme(): Theme {
@@ -427,4 +496,70 @@ function readTheme(): Theme {
 function applyTheme(th: Theme) {
   if (th === 'system') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = th;
+}
+
+/** Whether a media query matches, following changes. */
+function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const m = matchMedia(query);
+    const f = () => setOn(m.matches);
+    m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, [query]);
+  return on;
+}
+
+/** a tab in the phone's bottom bar needs at least this much room (icon + a short label) */
+const PHONE_TAB = 58;
+
+/**
+ * How many tabs fit in the bar, with room for "More" when not all do. Phones: the bottom
+ * bar's width over a minimum tab width. Wider screens: the tabs' own widths (remembered from
+ * when they were on show) against the room between the brand and the buttons.
+ */
+function useTabFit(ref: React.RefObject<HTMLElement | null>, lang: Lang): number {
+  const [fit, setFit] = useState(TABS.length);
+  const widths = useRef(new Map<string, number>());
+  // new labels, new widths: show everything once to measure again
+  useLayoutEffect(() => {
+    widths.current.clear();
+    setFit(TABS.length);
+  }, [lang]);
+  useLayoutEffect(() => {
+    const nav = ref.current;
+    const bar = nav?.parentElement;
+    if (!nav || !bar) return;
+    const measure = () => {
+      const phone = matchMedia('(max-width: 760px)').matches;
+      if (!phone) nav.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => widths.current.set(b.dataset.tab!, b.offsetWidth));
+      const w = (k: string) => (phone ? PHONE_TAB : (widths.current.get(k) ?? 100));
+      const gap = phone ? 0 : 4;
+      let room: number;
+      if (phone) room = nav.clientWidth - 8;
+      else {
+        const cs = getComputedStyle(bar);
+        const inner = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        // a row of their own (mid-size windows), or the space between the brand and the buttons
+        const gapX = parseFloat(cs.columnGap) || 16;
+        const others = getComputedStyle(nav).order === '3' ? 0 : [...bar.querySelectorAll<HTMLElement>(':scope > .brand, :scope > .actions')].reduce((s, c) => s + c.offsetWidth + gapX, 0);
+        room = inner - others - 8;
+      }
+      const all = TABS.reduce((s, k) => s + w(k) + gap, 6);
+      if (all <= room) return setFit(TABS.length);
+      let used = 6 + (phone ? PHONE_TAB : 96);
+      let n = 0;
+      for (const k of TABS) {
+        if (used + w(k) + gap > room) break;
+        used += w(k) + gap;
+        n++;
+      }
+      setFit(Math.max(1, n));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [ref, lang, fit]);
+  return fit;
 }
