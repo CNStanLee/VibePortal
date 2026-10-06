@@ -115,9 +115,21 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
       Object.assign(d, { wx: r?.left ?? 0, wy: r?.top ?? 0, ready: true });
     }
   };
+  /** A drag ends with the button — also when the release never arrived (window moved under the cursor). */
+  const endDrag = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.moved) {
+      if (variant === 'window') bridge?.petDragEnd();
+      else saveFloatPos(floatPosRef.current);
+    }
+  };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d || !d.ready) return;
+    if (!d) return;
+    // no button held: the pointer-up was lost — stop, instead of the pet following the mouse around
+    if ((e.buttons & 1) === 0) return endDrag();
+    if (!d.ready) return;
     const dx = e.screenX - d.sx;
     const dy = e.screenY - d.sy;
     if (!d.moved && Math.hypot(dx, dy) < 4) return;
@@ -211,7 +223,8 @@ export function PetWidget({ snapshot, variant, onOpenDashboard, onHide }: Props)
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp(u.key)}
-              onPointerCancel={() => (drag.current = null)}
+              onPointerCancel={endDrag}
+              onLostPointerCapture={() => drag.current && !drag.current.moved && (drag.current = null)}
               title={lang === 'zh' ? '单击展开 · 双击打开面板 · 拖动移动' : 'Click: details · Double-click: dashboard · Drag: move'}
             >
               {spawn && (

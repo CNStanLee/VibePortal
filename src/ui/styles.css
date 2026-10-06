@@ -1104,6 +1104,12 @@ html.pet-page body {
   border-radius: 999px;
   padding: 0 6px;
   white-space: nowrap;
+  /* long machine names (e.g. "user-Dell-Pro-Max-Tower-…") shrink instead of pushing out of the card */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pet-msg {
   font-weight: 650;
@@ -2889,6 +2895,17 @@ html.pet-page body {
   }
   .row {
     flex-wrap: wrap;
+  }
+  .task-title {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .task-title .task-name {
+    flex: 1 1 8em;
+    min-width: 0;
+  }
+  .host-tag {
+    max-width: 100%;
   }
   /* wide tables scroll inside their card instead of crushing columns */
   .table-wrap,

@@ -72,7 +72,7 @@ export function TaskList({
               </span>
               <span className="task-name">{task.title}</span>
               {(task.host || machineName) && (
-                <span className={`host-tag ${task.host ? '' : 'local'}`} title={t.machine}>
+                <span className={`host-tag ${task.host ? '' : 'local'}`} title={`${t.machine}: ${task.host ?? machineName}`}>
                   🖥 {task.host ?? machineName}
                 </span>
               )}
