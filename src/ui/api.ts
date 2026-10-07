@@ -6,7 +6,7 @@ import type { FarmView } from '../shared/farm';
 export type FarmAction = 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard' | 'sell' | 'sell-dupes' | 'sell-fish' | 'rod' | 'bait' | 'cast' | 'reel' | 'ad' | 'ad-claim';
 import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
 import type { OfficeRun, OfficeTeam, OfficeView } from '../shared/office';
-import type { GitRepositories, LaunchAgentInfo, LaunchProject, LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';
+import type { GitRepositories, LaunchAgentInfo, LaunchProject, LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext, TerminalOption, TerminalPref } from '../shared/types';
 
 export interface Notice {
   title: string;
@@ -264,6 +264,8 @@ export const api = {
   stopClaudeRemote: (cwd: string) => call<OfficialRemoteState>('DELETE', `api/official/claude?cwd=${encodeURIComponent(cwd)}`),
   codexRemote: (action: 'start' | 'stop') => call<OfficialRemoteState>('POST', `api/official/codex/${action}`, {}),
   codexPair: () => call<{ code: string; expiresAt: string }>('POST', 'api/official/codex/pair', {}),
+  openInTerminal: (id: string, terminal?: TerminalPref) => call<{ ok: boolean; terminal: TerminalOption }>('POST', `api/tasks/${encodeURIComponent(id)}/terminal`, { terminal }),
+  terminals: () => call<{ available: TerminalOption[]; selected: TerminalPref }>('GET', 'api/terminals'),
   openTask: (id: string) => call<{ ok: boolean }>('POST', `api/tasks/${encodeURIComponent(id)}/open`, {}),
   openProject: (key: string) => call<{ ok: boolean }>('POST', 'api/projects/open', { key }),
   addHost: (url: string, token: string) => call<PublicSettings>('POST', 'api/hosts', { url, token }),

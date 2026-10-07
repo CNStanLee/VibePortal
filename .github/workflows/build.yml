@@ -8,7 +8,12 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Windows too: .cmd shims, cmd / PowerShell quoting and paths differ there
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

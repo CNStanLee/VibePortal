@@ -1,7 +1,8 @@
-import { spawn, execFile, type ChildProcess } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { resolveBin } from './actions';
+import { cliCommand, killTree, resolveBin, spawnCli } from './actions';
 import { dataDir } from './config';
 import type { ServerInfo, TunnelProvider } from '../shared/types';
 
@@ -180,7 +181,7 @@ export class Tunnel {
     clearTimeout(this.retry);
     const c = this.child;
     this.child = undefined;
-    c?.kill();
+    if (c) killTree(c);
     if (this.tailscalePort) {
       this.tailscalePort = 0;
       const bin = resolveBin('tailscale');
@@ -195,7 +196,7 @@ export class Tunnel {
     const install = { ngrok: 'https://ngrok.com/download', cloudflared: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/', ssh: undefined }[spec.bin];
     if (!bin) return this.set({ state: 'missing', provider, error: `${spec.bin} is not installed`, link: install });
     this.set({ state: 'starting', provider });
-    const child = spawn(bin, spec.args(port, this.opts), { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, ...spec.env?.(this.opts) } });
+    const child = spawnCli(bin, spec.args(port, this.opts), { cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, ...spec.env?.(this.opts) } });
     this.child = child;
     let tail = '';
     let url: string | undefined;
@@ -226,7 +227,7 @@ export class Tunnel {
         // retrying won't help until the user fixes it
         this.wanted = false;
         this.child = undefined;
-        child.kill();
+        killTree(child);
         return this.set({ state: 'error', provider, ...fatal });
       }
       const u = spec.url(text);
@@ -260,7 +261,7 @@ export class Tunnel {
   /** Stops a tunnel that can't connect (it would retry forever), then tries again later. */
   private fail(child: ChildProcess, provider: Exclude<TunnelProvider, 'tailscale'>, port: number, s: ServerInfo['tunnel']) {
     this.child = undefined;
-    child.kill();
+    killTree(child);
     this.set(s);
     this.scheduleRetry(provider, port);
   }
@@ -281,7 +282,8 @@ export class Tunnel {
 
 function run(bin: string, args: string[], timeoutMs: number): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
-    execFile(bin, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1 << 20 }, (e, out, err) => {
+    const c = cliCommand(bin, args);
+    execFile(c.file, c.args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1 << 20, windowsVerbatimArguments: c.verbatim }, (e, out, err) => {
       const code = e ? (typeof (e as NodeJS.ErrnoException & { code?: unknown }).code === 'number' ? Number((e as { code?: unknown }).code) : 1) : 0;
       resolve({ code, out: String(out ?? ''), err: String(err ?? '') });
     });

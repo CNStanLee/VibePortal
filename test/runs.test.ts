@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fakeCli } from './fakeCli';
 import type { RunOptions } from '../src/core/actions';
 
 // keep runs/config out of the real ~/.vibeportal
@@ -17,11 +18,10 @@ const until = async (ok: () => boolean, ms = 8000) => {
   }
 };
 
-test('a background run outlives a VibePortal restart and is followed to the end', { skip: process.platform === 'win32' }, async () => {
+test('a background run outlives a VibePortal restart and is followed to the end', async () => {
   const { ActionRunner } = await import('../src/core/actions');
   // a stand-in `claude` that takes a while and then answers
-  const bin = path.join(home, 'claude');
-  fs.writeFileSync(bin, `#!/bin/sh\ncat >/dev/null\nsleep 1.2\necho finished\n`, { mode: 0o755 });
+  const bin = fakeCli(home, 'claude', `readAll(() => setTimeout(() => console.log('finished'), 1200));`);
   const before = new ActionRunner(() => {});
   const { jobId } = before.start({ agent: 'claude', cwd: home, prompt: 'go' }, { claudeBin: bin, codexBin: '' });
   const record = JSON.parse(fs.readFileSync(path.join(home, 'runs', 'running.json'), 'utf8'));
@@ -43,7 +43,7 @@ test('a background run outlives a VibePortal restart and is followed to the end'
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'runs', 'running.json'), 'utf8')), []);
 });
 
-test('a run that is gone is not adopted', { skip: process.platform === 'win32' }, async () => {
+test('a run that is gone is not adopted', async () => {
   const { ActionRunner } = await import('../src/core/actions');
   fs.mkdirSync(path.join(home, 'runs'), { recursive: true });
   fs.writeFileSync(
@@ -55,11 +55,10 @@ test('a run that is gone is not adopted', { skip: process.platform === 'win32' }
   assert.equal(updates.length, 0);
 });
 
-test('instructions queued on a busy run survive a restart', { skip: process.platform === 'win32' }, async () => {
+test('instructions queued on a busy run survive a restart', async () => {
   const { loadConfig } = await import('../src/core/config');
   const { Monitor } = await import('../src/core/monitor');
-  const bin = path.join(home, 'claude');
-  fs.writeFileSync(bin, `#!/bin/sh\ncat >/dev/null\nsleep 1\necho ok\n`, { mode: 0o755 });
+  const bin = fakeCli(home, 'claude-1s', `readAll(() => setTimeout(() => console.log('ok'), 1000));`);
   const cfg = { ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') };
   const m = new Monitor(cfg);
   const { jobId } = m.actions.start({ agent: 'claude', cwd: home, prompt: 'first' }, { claudeBin: bin, codexBin: '' });
@@ -71,11 +70,10 @@ test('instructions queued on a busy run survive a restart', { skip: process.plat
   await until(() => !m.actions.hasRunning(), 10_000);
 });
 
-test('an instruction to a finished run continues it as one task: the new run takes the old one’s place', { skip: process.platform === 'win32' }, async () => {
+test('an instruction to a finished run continues it as one task: the new run takes the old one’s place', async () => {
   const { loadConfig } = await import('../src/core/config');
   const { Monitor } = await import('../src/core/monitor');
-  const bin = path.join(home, 'claude');
-  fs.writeFileSync(bin, `#!/bin/sh\ncat >/dev/null\necho ok\n`, { mode: 0o755 });
+  const bin = fakeCli(home, 'claude-quick', `readAll(() => console.log('ok'));`);
   const m = new Monitor({ ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') });
   const { jobId } = m.actions.start({ agent: 'claude', cwd: home, prompt: 'first' }, { claudeBin: bin, codexBin: '' });
   await until(() => !m.actions.hasRunning());
@@ -88,11 +86,10 @@ test('an instruction to a finished run continues it as one task: the new run tak
   await until(() => !m.actions.hasRunning());
 });
 
-test('Codex resumes place exec options before resume and preserve run settings', { skip: process.platform === 'win32' }, async (t) => {
+test('Codex resumes place exec options before resume and preserve run settings', async (t) => {
   const { ActionRunner } = await import('../src/core/actions');
-  const bin = path.join(home, 'codex-args');
   // Capture the actual process arguments and stdin without starting a model run.
-  fs.writeFileSync(bin, `#!/usr/bin/env node\nconst fs = require('node:fs');\nconsole.log(JSON.stringify({ args: process.argv.slice(2), input: fs.readFileSync(0, 'utf8') }));\n`, { mode: 0o755 });
+  const bin = fakeCli(home, 'codex-args', `readAll((input) => console.log(JSON.stringify({ args: process.argv.slice(2), input })));`);
   const sessionId = '11111111-1111-4111-8111-111111111111';
   const prompt = 'Continue with "quoted text"\nand a second line';
   const permissions: RunOptions['permission'][] = [undefined, 'auto', 'edits', 'ask', 'default'];

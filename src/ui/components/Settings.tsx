@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ClaudePet, CodexPet, PublicSettings, ServerInfo, SettingsPatch } from '../../shared/types';
+import type { ClaudePet, CodexPet, PublicSettings, ServerInfo, SettingsPatch, TerminalOption, TerminalPref } from '../../shared/types';
 import { api, desktop, getToken } from '../api';
 import { useT } from '../i18n';
 import { RemoteSettings } from './Remote';
@@ -12,10 +12,15 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
   const [patch, setPatch] = useState<SettingsPatch>({});
   const [status, setStatus] = useState<string>('');
   const [snippet, setSnippet] = useState<string>('');
+  const [terminals, setTerminals] = useState<TerminalOption[]>([]);
   const isDesktop = !!desktop() || info?.mode === 'desktop';
 
   useEffect(() => {
     api.settings().then(setS).catch((e) => setStatus(String(e.message)));
+    api
+      .terminals()
+      .then((r) => setTerminals(r.available))
+      .catch(() => {});
     api
       .hookSnippet()
       .then((j) => setSnippet(JSON.stringify(j, null, 2)))
@@ -118,6 +123,19 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
           </Field>
           <Field label={lang === 'zh' ? '“建议下一步”使用的模型' : 'Model for "suggest next step"'}>
             <input value={v.suggestModel} onChange={(e) => set({ suggestModel: e.target.value })} spellCheck={false} />
+          </Field>
+          <Field label={t.terminal}>
+            <select value={v.terminal} onChange={(e) => set({ terminal: e.target.value as TerminalPref })}>
+              <option value="auto">{terminals[0] ? `${t.terminalAuto} (${terminals[0].name})` : t.terminalAuto}</option>
+              {terminals.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+              {/* a choice saved on a machine that no longer has it */}
+              {v.terminal !== 'auto' && !terminals.some((x) => x.id === v.terminal) && <option value={v.terminal}>{v.terminal}</option>}
+            </select>
+            <span className="muted tiny">{terminals.length ? t.terminalHelp : t.noTerminal}</span>
           </Field>
         </div>
       </section>

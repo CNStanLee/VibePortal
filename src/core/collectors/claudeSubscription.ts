@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PlanInfo, QuotaWindow, Severity, SourceStatus } from '../../shared/types';
+import { fetchRetry } from './net';
 
 const API = 'https://api.anthropic.com/api/oauth';
 
@@ -68,7 +69,7 @@ function readAccessToken(claudeDir: string): { ok: true; value: string } | { ok:
 }
 
 async function getJson(url: string, headers: Record<string, string>) {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+  const res = await fetchRetry(url, { headers });
   if (!res.ok) throw new Error(`${new URL(url).pathname} → HTTP ${res.status}`);
   return res.json();
 }

@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,11 +14,14 @@ import { describeTool } from './activity';
  * passed as a single argv entry.
  */
 
-const binCache = new Map<string, string | null>();
+/** a found binary is checked again before use (editor extensions move on update); "not found" is retried after a minute */
+const binCache = new Map<string, { path: string | null; at: number }>();
+const MISS_TTL = 60_000;
 
 export function resolveBin(name: 'claude' | 'codex' | 'code' | 'cloudflared' | 'ssh' | 'ngrok' | 'tailscale', override = ''): string | null {
   if (override && fs.existsSync(override)) return override;
-  if (binCache.has(name)) return binCache.get(name)!;
+  const hit = binCache.get(name);
+  if (hit && (hit.path ? fs.existsSync(hit.path) : Date.now() - hit.at < MISS_TTL)) return hit.path;
   const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
   const home = os.homedir();
   const dirs = [
@@ -27,42 +30,152 @@ export function resolveBin(name: 'claude' | 'codex' | 'code' | 'cloudflared' | '
     path.join(home, '.claude', 'local'),
     path.join(home, '.npm-global', 'bin'),
     path.join(home, 'AppData', 'Roaming', 'npm'),
+    // Windows package managers (an app started before an install doesn't see the new PATH)
+    ...(process.platform === 'win32'
+      ? [
+          path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'Microsoft', 'WinGet', 'Links'),
+          path.join(home, 'scoop', 'shims'),
+          path.join(process.env.ProgramData || 'C:\\ProgramData', 'chocolatey', 'bin'),
+        ]
+      : []),
     '/usr/local/bin',
     '/usr/bin',
     '/opt/homebrew/bin',
   ];
-  let found: string | null = null;
-  outer: for (const d of dirs) {
-    if (!d) continue;
-    for (const e of exts) {
-      const p = path.join(d, name + e);
-      try {
-        if (fs.statSync(p).isFile()) {
-          found = p;
-          break outer;
+  const findIn = (list: string[]): string | null => {
+    for (const d of list) {
+      if (!d) continue;
+      for (const e of exts) {
+        const p = path.join(d, name + e);
+        try {
+          if (fs.statSync(p).isFile()) return p;
+        } catch {
+          /* keep looking */
         }
-      } catch {
-        /* keep looking */
       }
     }
-  }
+    return null;
+  };
+  let found = findIn(dirs);
+  // Windows: installed after VibePortal started (winget without symlinks, an MSI…)? The registry has the PATH as it is now
+  if (!found && process.platform === 'win32') found = findIn(registryPath());
   // GUI launches often miss the user's shell PATH (nvm, volta…): ask a login shell
   if (!found && process.platform !== 'win32') {
     const r = spawnSync(process.env.SHELL || '/bin/bash', ['-lc', `command -v ${name}`], { encoding: 'utf8', timeout: 5000 });
     const p = r.stdout?.trim().split('\n').pop();
     if (p && fs.existsSync(p)) found = p;
   }
-  binCache.set(name, found);
+  // only the editor extension installed: it carries the full CLI
+  if (!found && (name === 'claude' || name === 'codex')) found = editorExtensionBin(name, home);
+  binCache.set(name, { path: found, at: Date.now() });
   return found;
 }
 
-/** Windows .cmd shims can't be spawned directly; route them through cmd. Only fixed flags, ids and paths reach this command line — prompts go via stdin. */
-export function spawnCli(bin: string, args: string[], opts: SpawnOptions & { cwd: string }) {
+/** The user's and the machine's PATH as stored now (a running process keeps the one it started with). */
+function registryPath(): string[] {
+  const keys = ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'];
+  return keys.flatMap((key) => {
+    const r = spawnSync('reg', ['query', key, '/v', 'Path'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    return parseRegPath(r.stdout ?? '', process.env);
+  });
+}
+
+/** The directories in `reg query … /v Path` output, with %VARIABLES% expanded. */
+export function parseRegPath(stdout: string, env: NodeJS.ProcessEnv): string[] {
+  const m = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.*)$/im.exec(stdout);
+  if (!m) return [];
+  return m[1]
+    .trim()
+    .replace(/%([^%]+)%/g, (all, v: string) => env[v] ?? env[Object.keys(env).find((k) => k.toLowerCase() === v.toLowerCase()) ?? ''] ?? all)
+    .split(';')
+    .map((d) => d.trim())
+    .filter(Boolean);
+}
+
+const EDITOR_EXTENSION_DIRS =['.vscode', '.vscode-insiders', '.cursor', '.windsurf', '.vscode-oss', '.vscode-server'];
+
+/**
+ * The CLI bundled with the Claude Code / Codex editor extension (VS Code and
+ * its forks): Claude ships resources/native-binary/claude(.exe), Codex
+ * bin/<os-arch>/codex(.exe). The newest installed version wins; folders VS
+ * Code has marked obsolete (awaiting deletion after an update) are skipped.
+ */
+export function editorExtensionBin(name: 'claude' | 'codex', home = os.homedir(), platform: NodeJS.Platform = process.platform): string | null {
+  const exe = platform === 'win32' ? `${name}.exe` : name;
+  const prefix = name === 'claude' ? 'anthropic.claude-code-' : 'openai.chatgpt-';
+  const candidates: { file: string; version: number[] }[] = [];
+  for (const editor of EDITOR_EXTENSION_DIRS) {
+    const root = path.join(home, editor, 'extensions');
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(root);
+    } catch {
+      continue;
+    }
+    let obsolete: Record<string, unknown> = {};
+    try {
+      obsolete = JSON.parse(fs.readFileSync(path.join(root, '.obsolete'), 'utf8'));
+    } catch {
+      /* none */
+    }
+    for (const dir of entries) {
+      const m = /^(\d+)\.(\d+)\.(\d+)/.exec(dir.startsWith(prefix) ? dir.slice(prefix.length) : '');
+      if (!m || obsolete[dir]) continue;
+      const base = path.join(root, dir);
+      const files =
+        name === 'claude'
+          ? [path.join(base, 'resources', 'native-binary', exe)]
+          : (() => {
+              try {
+                // bin/windows-x86_64, bin/linux-aarch64…: this machine's architecture first
+                const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+                return fs
+                  .readdirSync(path.join(base, 'bin'))
+                  .sort((a, b) => Number(b.endsWith(arch)) - Number(a.endsWith(arch)))
+                  .map((d) => path.join(base, 'bin', d, exe));
+              } catch {
+                return [];
+              }
+            })();
+      for (const file of files) {
+        try {
+          if (fs.statSync(file).isFile()) candidates.push({ file, version: m.slice(1).map(Number) });
+        } catch {
+          /* not in this one */
+        }
+      }
+    }
+  }
+  candidates.sort((a, b) => b.version[0] - a.version[0] || b.version[1] - a.version[1] || b.version[2] - a.version[2]);
+  return candidates[0]?.file ?? null;
+}
+
+/**
+ * Windows .cmd shims (an npm install of claude / codex / ngrok) can't be spawned
+ * directly; route them through cmd. Only fixed flags, ids and paths reach this
+ * command line — prompts go via stdin. Returns what to hand to spawn / execFile.
+ */
+export function cliCommand(bin: string, args: string[]): { file: string; args: string[]; verbatim: boolean } {
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin)) {
     const quoted = [bin, ...args].map((a) => `"${a.replace(/"/g, '""')}"`).join(' ');
-    return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${quoted}"`], { ...opts, windowsVerbatimArguments: true });
+    return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${quoted}"`], verbatim: true };
   }
-  return spawn(bin, args, opts);
+  return { file: bin, args, verbatim: false };
+}
+
+/**
+ * Ends a CLI and what it started. On Windows a .cmd shim is a cmd.exe wrapping
+ * the real program, and killing the wrapper would leave that program running.
+ */
+export function killTree(child: ChildProcess, signal?: NodeJS.Signals) {
+  if (process.platform === 'win32' && child.pid && child.exitCode === null) {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', () => child.kill());
+  } else child.kill(signal);
+}
+
+export function spawnCli(bin: string, args: string[], opts: SpawnOptions & { cwd: string }) {
+  const c = cliCommand(bin, args);
+  return spawn(c.file, c.args, c.verbatim ? { ...opts, windowsVerbatimArguments: true } : opts);
 }
 
 /** Last user prompt and assistant reply of a Claude Code transcript. */
@@ -576,7 +689,7 @@ function runCapture(bin: string, args: string[], stdin: string, cwd: string, tim
     let out = '';
     let err = '';
     const timer = setTimeout(() => {
-      child.kill();
+      killTree(child);
       reject(httpError(504, 'Suggestion timed out'));
     }, timeoutMs);
     child.stdout?.on('data', (b) => (out += b));

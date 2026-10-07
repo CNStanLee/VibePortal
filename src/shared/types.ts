@@ -300,6 +300,30 @@ export interface OfficialRemoteState {
   codex: { state: 'off' | 'starting' | 'on' | 'error'; serverName?: string; environmentId?: string; error?: string };
 }
 
+/** terminal programs a session can be opened in (see core/terminals.ts) */
+export type TerminalId =
+  | 'wt'
+  | 'pwsh'
+  | 'powershell'
+  | 'cmd'
+  | 'git-bash'
+  | 'ptyxis'
+  | 'gnome-terminal'
+  | 'konsole'
+  | 'xfce4-terminal'
+  | 'kitty'
+  | 'alacritty'
+  | 'wezterm'
+  | 'foot'
+  | 'x-terminal-emulator'
+  | 'xterm';
+/** 'auto': the first terminal found, in this platform's order */
+export type TerminalPref = 'auto' | TerminalId;
+export interface TerminalOption {
+  id: TerminalId;
+  name: string;
+}
+
 /** relays that give this machine a public https address */
 export type TunnelProvider = 'ngrok' | 'tailscale' | 'localhost.run' | 'pinggy' | 'cloudflare';
 
@@ -316,6 +340,8 @@ export interface PublicSettings {
   notifications: boolean;
   pet: { enabled: boolean; size: number; character: PetCharacter; claudePet: ClaudePet; codexPet: CodexPet };
   suggestModel: string;
+  /** where "Open in terminal" opens a session */
+  terminal: TerminalPref;
   anthropicAdminKeySet: boolean;
   openaiAdminKeySet: boolean;
   /** Only meaningful in desktop mode */

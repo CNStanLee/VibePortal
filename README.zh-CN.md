@@ -156,6 +156,7 @@ VibePortal 只读取本机已有的数据，不需要额外登录：
   - 指令通过 stdin 传入，不经过 shell。后台运行会作为“Run”任务出现，完成后可查看输出。headless 模式下需要权限确认的工具会被拒绝（取决于你的 Claude Code / Codex 权限设置）。
 - **权限**——新任务和指令默认使用 Claude Code 的 **auto 模式**（由它的安全分类器放行常规操作）。仍需授权的操作会以**允许 / 拒绝**的形式出现在面板、宠物对话框和手机上，可选“本次运行一直允许该工具”；15 分钟无人回答则自动拒绝。选择“每次问我”则全部询问。这是通过 Claude Code 的 permission-prompt 工具实现的：一个小型 MCP 服务器（`dist/mcp/permission.cjs`）经本机回环地址询问 VibePortal。Codex 在后台运行时没有询问机制：选“自动”或“改文件”会给它这个文件夹的写权限（`--sandbox workspace-write`）。
 - **后台运行**会保留 7 天，可以查看完整对话（📜 完整对话）并继续。VS Code 有意不在历史列表里显示 headless 会话，所以每个后台运行都有**在 VS Code 中打开**，按 id 打开这个会话本身。
+- **在终端中打开**——在电脑上的终端里以交互方式打开这个会话：`claude --resume <id>`（会话仍在别处打开时加 `--fork-session`，避免两个进程写同一份记录）或 `codex resume <id>`；没有会话的任务会在其目录中打开一个 shell。Agent 退出后窗口停留在 shell 上。VibePortal 会自动发现本机已安装的终端——Windows 上有 **Windows Terminal、PowerShell 7、Windows PowerShell、命令提示符、Git Bash**；Linux 上有 **Ptyxis、GNOME Terminal、Konsole、Xfce Terminal、kitty、Alacritty、WezTerm、foot、x-terminal-emulator、xterm**——在设置中选择（“自动”取第一个找到的：Windows Terminal → PowerShell → cmd；Linux 上优先桌面环境自带的终端）。Windows 上窗口通过 `Start-Process` 启动，因此有独立的控制台（Windows 11 上在默认终端应用中打开），且不随 VibePortal 退出。执行的命令只有固定的程序、固定参数和校验过的会话 id，并按所选 shell 的规则加引号——不会拼接任何指令文本。
 - **追加指令**——发给还在工作的后台运行的指令会排队（显示在运行下面，可以撤回），当前这轮一结束就在同一个会话里继续；多条排队指令合成一条发送。发给已结束运行的指令会作为同一个任务继续，宠物卡片 / 任务行会停在执行这条指令的运行上。
 - **重启**——后台运行在自己的进程组里，输出写到 `~/.vibeportal/runs/<id>.out`，所以 VibePortal 重启（更新、崩溃）时它们照常跑；启动时会把仍在运行的接回来（`runs/running.json`），排队的指令也一样（`runs/queued.json`）。重启期间弹出的权限请求，会在 VibePortal 回来后重新询问。
 - **为什么不直接写入 VS Code 里的会话**：两个扩展都独占自己的会话（Claude 扩展为每个会话启动一个由它的 stdin 驱动的 `claude` 进程，Codex 扩展在每个窗口内运行私有的 `codex app-server`），外部进程无法安全写入。上面的深链接是扩展官方提供的入口。
@@ -285,6 +286,8 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 | POST | `/api/tasks/:id/continue` | 发送新指令 `{prompt, model?, effort?}` |
 | POST | `/api/tasks/:id/open` | 在 VS Code / 文件管理器中打开任务目录 |
 | POST | `/api/tasks/:id/vscode` | 在 VS Code 中打开这个会话（Claude 可附带 `{prompt}` 预填） |
+| POST | `/api/tasks/:id/terminal` | 在终端中打开这个会话（`{terminal}` 可临时指定终端，如 `"git-bash"`） |
+| GET | `/api/terminals` | 本机已安装的终端以及当前选择 |
 | GET | `/api/official` | 官方 Remote Control 状态 |
 | POST / DELETE | `/api/official/claude` | 为文件夹开启 / 停止 Claude Remote Control `{cwd}` / `?cwd=` |
 | POST | `/api/official/codex/start\|stop\|pair` | Codex 远程控制守护进程 / 配对码 |
@@ -323,7 +326,7 @@ curl -X POST http://127.0.0.1:8787/api/tasks -H "Authorization: Bearer $TOKEN" \
 | `CLAUDE_CONFIG_DIR` / `CODEX_HOME` | Claude Code / Codex 数据目录（首次运行时作为默认值） |
 | `ANTHROPIC_ADMIN_KEY` / `OPENAI_ADMIN_KEY` | Admin Key 初始值 |
 
-`config.json` 中还可以设置：`claudeBin` / `codexBin`（CLI 不在 PATH 中时）、`suggestModel`、`prices`（例如 `{"gpt-6-astra": {"input": 2, "output": 8, "cacheRead": 0.2}}`，单位：美元 / 百万 Token）。
+`config.json` 中还可以设置：`claudeBin` / `codexBin`（CLI 不在 PATH 中时）、`suggestModel`、`terminal`（`auto`、`wt`、`pwsh`、`powershell`、`cmd`、`git-bash`、`gnome-terminal`、`konsole` 等）、`prices`（例如 `{"gpt-6-astra": {"input": 2, "output": 8, "cacheRead": 0.2}}`，单位：美元 / 百万 Token）。
 
 ## 远程访问
 

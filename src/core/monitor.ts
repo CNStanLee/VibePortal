@@ -6,6 +6,7 @@ import { Office, parsePlan, planPrompt } from './office';
 import { subagentsOf } from './subagents';
 import { weeklyRates } from '../shared/office';
 import { EventEmitter } from 'node:events';
+import os from 'node:os';
 import path from 'node:path';
 import { ClaudeLocalCollector } from './collectors/claudeLocal';
 import { ClaudeSubscriptionCollector } from './collectors/claudeSubscription';
@@ -22,9 +23,10 @@ import { isDir, launchProjects } from './projects';
 import { ResourceMonitor } from './resources';
 import { SkillStore } from './skills';
 import { OfficialRemote } from './officialRemote';
+import { detectTerminals, openTerminal } from './terminals';
 import { PermissionBroker } from './permissions';
 import { dataDir, type Config } from './config';
-import type { LaunchOptions, TaskHistory, PetState, Provider, ProviderSnapshot, QuotaWindow, Snapshot, TaskContext, TaskInfo } from '../shared/types';
+import type { LaunchOptions, TerminalOption, TerminalPref, TaskHistory, PetState, Provider, ProviderSnapshot, QuotaWindow, Snapshot, TaskContext, TaskInfo } from '../shared/types';
 
 export interface Notice {
   title: string;
@@ -354,6 +356,42 @@ export class Monitor extends EventEmitter {
       url = `vscode://openai.chatgpt/local/${encodeURIComponent(sid)}`;
     } else throw httpError(400, 'only Claude Code / Codex sessions open in VS Code');
     this.actions.openUrl(url);
+  }
+
+  /** The terminals installed here and the one "Open in terminal" uses. */
+  terminals(): { available: TerminalOption[]; selected: TerminalPref } {
+    return { available: detectTerminals().map(({ id, name }) => ({ id, name })), selected: this.cfg.terminal };
+  }
+
+  /**
+   * What "Open in terminal" runs for a task, and where: `claude --resume`
+   * (forked while its own process is still open, so the two never write to one
+   * transcript) or `codex resume`; a task without a conversation gets a shell
+   * in its folder.
+   */
+  terminalCommand(task: TaskInfo): { cwd: string; command: string[] | null } {
+    const cwd = task.cwd && isDir(task.cwd) ? task.cwd : undefined;
+    const sid = task.kind === 'dispatch' ? task.sessionId : sessionIdOf(task);
+    const kind = task.kind === 'dispatch' ? (task.provider === 'openai' ? 'codex' : 'claude-code') : task.kind;
+    let command: string[] | null = null;
+    if (sid && kind === 'claude-code') {
+      if (!/^[0-9a-f-]{36}$/i.test(sid)) throw httpError(400, 'invalid session id');
+      const bin = resolveBin('claude', this.cfg.claudeBin);
+      if (!bin) throw httpError(501, 'Claude Code CLI not found — install it or set "claudeBin" in config.json');
+      command = [bin, '--resume', sid, ...(task.alive ? ['--fork-session'] : [])];
+    } else if (sid && kind === 'codex') {
+      if (!/^[\w-]{1,100}$/.test(sid)) throw httpError(400, 'invalid session id');
+      const bin = resolveBin('codex', this.cfg.codexBin);
+      if (!bin) throw httpError(501, 'Codex CLI not found — install it or set "codexBin" in config.json');
+      command = [bin, 'resume', sid];
+    } else if (!cwd) throw httpError(404, 'Working directory not found');
+    return { cwd: cwd ?? os.homedir(), command };
+  }
+
+  /** Opens the task's conversation (or folder) in the chosen terminal. */
+  async openInTerminal(task: TaskInfo, pref: TerminalPref = this.cfg.terminal): Promise<TerminalOption> {
+    const { cwd, command } = this.terminalCommand(task);
+    return openTerminal(pref, cwd, command);
   }
 
   /**

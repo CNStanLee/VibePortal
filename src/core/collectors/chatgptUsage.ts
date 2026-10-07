@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { QuotaWindow, ResetCredits, SourceStatus } from '../../shared/types';
 import { severityFor } from './claudeSubscription';
 import { decodeJwt, windowKind, windowLabel } from './codexLocal';
+import { fetchRetry } from './net';
 
 /**
  * Live ChatGPT/Codex plan limits from chatgpt.com/backend-api/wham/usage — the
@@ -27,17 +28,16 @@ export class ChatGptUsageCollector {
     if (!token) return this.fail('unavailable', 'Codex is not signed in with ChatGPT');
     const exp = decodeJwt(token)?.exp;
     if (typeof exp === 'number' && exp * 1000 < Date.now()) {
-      return this.fail('unavailable', 'ChatGPT token expired — run Codex once to refresh it (showing log data)');
+      return this.fail('unavailable', `ChatGPT token expired on ${new Date(exp * 1000).toISOString().slice(0, 10)} — open Codex (the app or \`codex\` in a terminal) once to refresh it (showing log data)`);
     }
     try {
-      const res = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+      const res = await fetchRetry('https://chatgpt.com/backend-api/wham/usage', {
         headers: {
           Authorization: `Bearer ${token}`,
           'ChatGPT-Account-Id': auth?.tokens?.account_id ?? '',
           Accept: 'application/json',
           'User-Agent': 'vibeportal',
         },
-        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`wham/usage → HTTP ${res.status}`);
       const body: any = await res.json();

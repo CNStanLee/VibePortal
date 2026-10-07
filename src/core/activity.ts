@@ -274,7 +274,8 @@ function shellArgs(argv: unknown[]): string {
 function relPath(p: string, cwd?: string): string {
   if (cwd && path.isAbsolute(p)) {
     const r = path.relative(cwd, p);
-    if (r && !r.startsWith('..') && !path.isAbsolute(r)) return r;
+    // labels read the same on every platform: src/a.ts, not src\a.ts
+    if (r && !r.startsWith('..') && !path.isAbsolute(r)) return r.split(path.sep).join('/');
   }
   return path.isAbsolute(p) ? path.basename(p) : p;
 }

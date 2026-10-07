@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ActivityLog, describeTool, firstSentence } from '../src/core/activity';
 import { ClaudeLocalCollector } from '../src/core/collectors/claudeLocal';
 import { TaskTracker } from '../src/core/tasks';
+import { fakeCli } from './fakeCli';
 
 test('activity: tool calls map to verbs with repo-relative targets', () => {
   assert.deepEqual(describeTool('Edit', { file_path: '/r/src/a.ts' }, '/r'), { verb: 'edit', text: 'src/a.ts' });
@@ -171,7 +172,7 @@ test('skills: frontmatter, manual skills, auto-archive of task-written skills, i
   fs.writeFileSync(path.join(out, 'SKILL.md'), '---\nname: lint-fix\ndescription: Fix lint errors\n---\nRun the linter.');
   fs.writeFileSync(path.join(out, 'helper.sh'), 'echo hi');
   for (const f of writtenFiles('Write', { file_path: path.join(out, 'SKILL.md') })) store.noteWrite(f, { agent: 'claude' });
-  assert.deepEqual(writtenFiles('apply_patch', '*** Begin Patch\n*** Add File: a/SKILL.md\n*** End Patch', '/r'), ['/r/a/SKILL.md']);
+  assert.deepEqual(writtenFiles('apply_patch', '*** Begin Patch\n*** Add File: a/SKILL.md\n*** End Patch', '/r'), [path.resolve('/r', 'a', 'SKILL.md')]);
   store.flush();
   const lib = store.list(true).find((s) => s.source === 'library' && s.name === 'lint-fix')!;
   assert.ok(lib, 'archived');
@@ -205,17 +206,14 @@ test('tunnel: ngrok static domain and Tailscale Funnel (fake CLIs)', async () =>
   const os = await import('node:os');
   const path = await import('node:path');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-bin-'));
-  // ngrok: fails without a token, prints "started tunnel" with one
-  fs.writeFileSync(
-    path.join(bin, 'ngrok'),
-    `#!/bin/sh\nif [ -z "$NGROK_AUTHTOKEN" ]; then echo '{"lvl":"eror","msg":"session closing","err":"authentication failed: ERR_NGROK_4018"}'; sleep 5; exit 1; fi\necho '{"lvl":"info","msg":"started tunnel","url":"https://vibe-test.ngrok-free.app"}'\nsleep 30\n`,
-    { mode: 0o755 },
+  // ngrok: fails without a token, prints "started tunnel" with one (on Windows: .cmd shims, like npm's)
+  fakeCli(
+    bin,
+    'ngrok',
+    `if (!process.env.NGROK_AUTHTOKEN) { console.log('{"lvl":"eror","msg":"session closing","err":"authentication failed: ERR_NGROK_4018"}'); setTimeout(() => process.exit(1), 5000); }
+else { console.log('{"lvl":"info","msg":"started tunnel","url":"https://vibe-test.ngrok-free.app"}'); setTimeout(() => {}, 30000); }`,
   );
-  fs.writeFileSync(
-    path.join(bin, 'tailscale'),
-    `#!/bin/sh\ncase "$1" in funnel) exit 0;; status) echo '{"Self":{"DNSName":"box.tail1234.ts.net."}}';; esac\n`,
-    { mode: 0o755 },
-  );
+  fakeCli(bin, 'tailscale', `if (process.argv[2] === 'status') console.log('{"Self":{"DNSName":"box.tail1234.ts.net."}}');`);
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
   const { Tunnel } = await import('../src/core/tunnel');
   const until = async (t: InstanceType<typeof Tunnel>, ok: (s: any) => boolean) => {
@@ -280,5 +278,6 @@ test('trusting a folder for Claude Remote Control keeps the rest of ~/.claude.js
   assert.deepEqual(after.projects['/other'], { allowedTools: ['Read'] });
   assert.equal(after.projects[repo].hasTrustDialogAccepted, true);
   assert.equal(rc.claudeTrusted(path.join(repo, 'sub')), true, 'sub-folders inherit the trust');
-  assert.equal(fs.statSync(path.join(home, '.claude.json')).mode & 0o777, 0o600, 'file mode kept');
+  // Windows has no POSIX modes (a file reads back 0o666)
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(home, '.claude.json')).mode & 0o777, 0o600, 'file mode kept');
 });

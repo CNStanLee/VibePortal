@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fakeCli } from './fakeCli';
 
 // keep runs/config out of the real ~/.vibeportal
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-followup-'));
@@ -16,13 +17,16 @@ const until = async (ok: () => boolean, ms = 5000) => {
   }
 };
 
-test('an instruction sent to a busy background run waits for its turn, then resumes the same session', { skip: process.platform === 'win32' }, async () => {
+test('an instruction sent to a busy background run waits for its turn, then resumes the same session', async () => {
   const { loadConfig } = await import('../src/core/config');
   const { Monitor } = await import('../src/core/monitor');
   // a stand-in `claude`: logs its arguments and stdin, then takes a moment
   const log = path.join(home, 'calls.log');
-  const bin = path.join(home, 'claude');
-  fs.writeFileSync(bin, `#!/bin/sh\nin=$(cat | tr "\\n" " ")\necho "$* :: $in" >> "${log}"\nsleep 0.4\necho ok\n`, { mode: 0o755 });
+  const bin = fakeCli(
+    home,
+    'claude',
+    `readAll((input) => { fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + ' :: ' + input.replace(/\\n/g, ' ') + '\\n'); setTimeout(() => console.log('ok'), 400); });`,
+  );
   const m = new Monitor({ ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') });
   const { jobId } = m.actions.start({ agent: 'claude', cwd: home, prompt: 'first' }, { claudeBin: bin, codexBin: '' });
   const first = m.tasks.customTasks().find((t) => t.id === `dispatch:${jobId}`)!;
@@ -46,11 +50,10 @@ test('an instruction sent to a busy background run waits for its turn, then resu
   await until(() => !m.actions.hasRunning());
 });
 
-test('queued instructions can be taken back', { skip: process.platform === 'win32' }, async () => {
+test('queued instructions can be taken back', async () => {
   const { loadConfig } = await import('../src/core/config');
   const { Monitor } = await import('../src/core/monitor');
-  const bin = path.join(home, 'claude-slow');
-  fs.writeFileSync(bin, `#!/bin/sh\ncat >/dev/null\nsleep 0.3\n`, { mode: 0o755 });
+  const bin = fakeCli(home, 'claude-slow', `readAll(() => setTimeout(() => {}, 300));`);
   const m = new Monitor({ ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') });
   const { jobId } = m.actions.start({ agent: 'claude', cwd: home, prompt: 'go' }, { claudeBin: bin, codexBin: '' });
   const task = m.tasks.customTasks().find((t) => t.id === `dispatch:${jobId}`)!;
@@ -62,15 +65,18 @@ test('queued instructions can be taken back', { skip: process.platform === 'win3
   assert.equal(m.tasks.customTasks().find((t) => t.id === task.id)?.state, 'done');
 });
 
-test('the team planner runs on the model and reasoning effort picked for it', { skip: process.platform === 'win32' }, async () => {
+test('the team planner runs on the model and reasoning effort picked for it', async () => {
   const { loadConfig } = await import('../src/core/config');
   const { Monitor } = await import('../src/core/monitor');
   // a stand-in `claude`: logs its arguments, replies with a one-desk team
   const log = path.join(home, 'plan.log');
   const reply = path.join(home, 'plan.json');
   fs.writeFileSync(reply, JSON.stringify({ result: JSON.stringify({ nodes: [{ key: 'a', role: 'lead', task: 'Lead', deliverable: 'It', criteria: ['done'] }] }) }));
-  const bin = path.join(home, 'claude-plan');
-  fs.writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho "$*" >> "${log}"\ncat "${reply}"\n`, { mode: 0o755 });
+  const bin = fakeCli(
+    home,
+    'claude-plan',
+    `readAll(() => { fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n'); process.stdout.write(fs.readFileSync(${JSON.stringify(reply)})); });`,
+  );
   const m = new Monitor({ ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') });
   const team = await m.planTeam({ goal: 'Ship it', budget: 3, model: 'opus', effort: 'xhigh' });
   assert.deepEqual(team.criteria, ['done'], 'the lead’s criteria are the team’s final ones');

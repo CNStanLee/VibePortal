@@ -1,8 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { httpError, resolveBin } from './actions';
+import { httpError, killTree, resolveBin, spawnCli } from './actions';
 import type { OfficialRemoteState } from '../shared/types';
 
 const MAX_CLAUDE_ENVS = 5;
@@ -54,7 +54,7 @@ export class OfficialRemote {
       const cfg = JSON.parse(fs.readFileSync(this.claudeJson(), 'utf8'));
       const projects: Record<string, { hasTrustDialogAccepted?: boolean }> = cfg.projects ?? {};
       for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
-        if (projects[d]?.hasTrustDialogAccepted) return true;
+        if (projectKeys(d).some((k) => projects[k]?.hasTrustDialogAccepted)) return true;
         if (path.dirname(d) === d) return false;
       }
     } catch {
@@ -72,7 +72,8 @@ export class OfficialRemote {
     const bin = resolveBin('claude', this.bins().claudeBin);
     if (!bin) throw httpError(501, 'Claude Code CLI not found');
     // no pre-created empty session: sessions start when you open the link
-    const child = spawn(bin, ['remote-control', '--name', name.slice(0, 60), '--no-create-session-in-dir'], {
+    // spawnCli: on Windows an npm install of claude is a .cmd shim, which spawn() refuses
+    const child = spawnCli(bin, ['remote-control', '--name', name.slice(0, 60), '--no-create-session-in-dir'], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
@@ -129,7 +130,7 @@ export class OfficialRemote {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw httpError(500, `cannot read ${file}`);
       }
       cfg.projects = cfg.projects ?? {};
-      cfg.projects[cwd] = { ...(cfg.projects[cwd] ?? {}), hasTrustDialogAccepted: true };
+      for (const k of projectKeys(cwd)) cfg.projects[k] = { ...(cfg.projects[k] ?? {}), hasTrustDialogAccepted: true };
       const tmp = `${file}.vibeportal-${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode });
       fs.renameSync(tmp, file);
@@ -143,8 +144,9 @@ export class OfficialRemote {
     const env = this.claude.get(cwd);
     if (!env) return;
     this.claude.delete(cwd);
-    env.child.kill('SIGINT'); // lets it deregister the environment
-    setTimeout(() => env.child.exitCode === null && env.child.kill(), 5000).unref();
+    // SIGINT lets it deregister the environment (Windows has no signals: it is ended outright)
+    killTree(env.child, 'SIGINT');
+    setTimeout(() => env.child.exitCode === null && killTree(env.child), 5000).unref();
     this.onChange();
   }
 
@@ -189,11 +191,11 @@ export class OfficialRemote {
     const bin = resolveBin('codex', this.bins().codexBin);
     if (!bin) return Promise.reject(httpError(501, 'Codex CLI not found'));
     return new Promise((resolve, reject) => {
-      const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined }, windowsHide: true });
+      const child = spawnCli(bin, args, { cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined }, windowsHide: true });
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
-        child.kill();
+        killTree(child);
         reject(httpError(504, `codex ${args.slice(0, 2).join(' ')} timed out`));
       }, timeoutMs);
       child.stdout?.on('data', (b) => (out += b));
@@ -218,3 +220,11 @@ const lastJsonLine = (s: string) =>
     .map((l) => l.trim())
     .filter((l) => l.startsWith('{'))
     .pop() ?? '{}';
+
+/**
+ * The keys ~/.claude.json may file a folder under. On Windows a folder can be
+ * filed as C:\x\y or as C:/x/y: trust is looked up, and written, under both.
+ */
+function projectKeys(dir: string): string[] {
+  return process.platform === 'win32' ? [...new Set([dir, dir.replace(/\\/g, '/')])] : [dir];
+}

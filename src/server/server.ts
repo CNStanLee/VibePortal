@@ -14,6 +14,7 @@ import { farmCardSvg } from '../shared/farmCard';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
 import { WebPush } from '../core/webpush';
 import { isDir } from '../core/projects';
+import { isTerminalPref } from '../core/terminals';
 import { cloneRepository, recentRepositories } from '../core/repositories';
 
 export interface ServerOptions {
@@ -297,6 +298,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         return json(res, 200, toPublic(next));
       }
 
+      if (p === '/api/terminals' && req.method === 'GET') return json(res, 200, monitor.terminals());
+
       // open a repository from the analysis table — only paths VibePortal itself reported
       if (p === '/api/projects/open' && req.method === 'POST') {
         const body = await readJson(req);
@@ -513,8 +516,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         return json(res, 200, { ok: true, n });
       }
 
-      // ── task actions: /api/tasks/<id>[/context|/suggest|/continue|/open] ──
-      const tm = /^\/api\/tasks\/([^/]+)(?:\/(context|history|suggest|continue|queue|open|vscode))?$/.exec(p);
+      // ── task actions: /api/tasks/<id>[/context|/suggest|/continue|/open|/vscode|/terminal] ──
+      const tm = /^\/api\/tasks\/([^/]+)(?:\/(context|history|suggest|continue|queue|open|vscode|terminal))?$/.exec(p);
       if (tm) {
         const id = decodeURIComponent(tm[1]);
         const action = tm[2];
@@ -548,6 +551,10 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           const body = await readJson(req);
           monitor.openInVscode(task, typeof body?.prompt === 'string' ? body.prompt.trim() : undefined);
           return json(res, 200, { ok: true });
+        }
+        if (action === 'terminal' && req.method === 'POST') {
+          const body = await readJson(req);
+          return json(res, 200, { ok: true, terminal: await monitor.openInTerminal(task, isTerminalPref(body?.terminal) ? body.terminal : undefined) });
         }
         if (action === 'open' && req.method === 'POST') {
           monitor.actions.open(task);

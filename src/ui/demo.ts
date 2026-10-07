@@ -379,6 +379,7 @@ const settings: PublicSettings = {
   notifications: true,
   pet: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' },
   suggestModel: 'haiku',
+  terminal: 'auto',
   anthropicAdminKeySet: false,
   openaiAdminKeySet: false,
   launchAtLogin: true,
@@ -464,6 +465,16 @@ export function demoCall(method: string, path: string, body?: unknown): unknown 
     };
   }
   if (p === 'api/hooks/snippet') return { hooks: {} };
+  if (p === 'api/terminals')
+    return {
+      available: [
+        { id: 'gnome-terminal', name: 'GNOME Terminal' },
+        { id: 'kitty', name: 'kitty' },
+        { id: 'xterm', name: 'XTerm' },
+      ],
+      selected: settings.terminal,
+    };
+  if (/\/terminal$/.test(p)) return { ok: true, terminal: { id: 'gnome-terminal', name: 'GNOME Terminal' } };
   if (method !== 'GET') return { ok: true };
   return {};
 }

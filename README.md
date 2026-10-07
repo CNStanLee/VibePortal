@@ -156,6 +156,7 @@ VibePortal only reads what is already on your machine — no extra sign-in:
   - Instructions go through stdin, never a shell. Background runs appear as "Run" tasks whose output you can read. In headless mode, tools that need a permission prompt are refused (depending on your Claude Code / Codex permission settings).
 - **Permissions** — new tasks and instructions run in Claude Code's **auto** mode by default (its safety classifier approves routine actions). Whatever still needs approval pops up as **Allow / Deny** on the dashboard, in the pet's bubble and on the phone, with "always allow this tool for this run"; unanswered requests are denied after 15 minutes. Pick "Ask me" to be asked about everything. This works through Claude Code's permission-prompt tool: a tiny MCP server (`dist/mcp/permission.cjs`) that asks VibePortal over the loopback. Codex has no prompt in headless runs: auto / edit files give it its folder (`--sandbox workspace-write`).
 - **Background runs** stay listed for 7 days, show their whole conversation (📜 Full conversation) and can be continued. VS Code keeps headless sessions out of its history list on purpose, so each run has **Open in VS Code**, which opens the exact session by id.
+- **Open in terminal** — opens the conversation interactively in a terminal on the computer: `claude --resume <id>` (with `--fork-session` while it is still open elsewhere, so two processes never write one transcript) or `codex resume <id>`; a task without a conversation gets a shell in its folder. The window stays open on a shell when the agent exits. VibePortal finds the terminals installed on the machine — **Windows Terminal, PowerShell 7, Windows PowerShell, Command Prompt, Git Bash** on Windows; **Ptyxis, GNOME Terminal, Konsole, Xfce Terminal, kitty, Alacritty, WezTerm, foot, x-terminal-emulator, xterm** on Linux — and Settings picks one ("Automatic" takes the first found: Windows Terminal → PowerShell → cmd; the desktop's own terminal on Linux). On Windows the window is started through `Start-Process`, so it gets a console of its own (in the default terminal app on Windows 11) and outlives VibePortal. The command is a fixed binary, fixed flags and a validated session id, quoted for the chosen shell — never text from a prompt.
 - **Adding to a run** — an instruction sent to a background run that is still working is queued (shown under the run, can be taken back) and goes on in the same conversation the moment the current turn ends; several queued instructions go as one. An instruction to a finished run resumes it as the same task, and the pet card / task row stays open on the run that carries it.
 - **Restarts** — runs live in their own process group and write their output to `~/.vibeportal/runs/<id>.out`, so they keep going while VibePortal restarts (an update, a crash); on start it picks the ones still running back up (`runs/running.json`), together with queued instructions (`runs/queued.json`). A permission prompt open during a restart is asked again once VibePortal is back.
 - **Why not write into the VS Code conversation directly?** Both extensions own their sessions — the Claude extension drives one `claude` process per session over its stdin, the Codex extension runs a private `codex app-server` per window — so nothing outside can write to them safely. The deep links above are the extensions' own entry points.
@@ -285,6 +286,8 @@ Everything except `/api/health`, `/api/login` and a public farm's `/api/public/f
 | POST | `/api/tasks/:id/continue` | Send an instruction `{prompt, model?, effort?}` |
 | POST | `/api/tasks/:id/open` | Open the task's folder in VS Code / the file manager |
 | POST | `/api/tasks/:id/vscode` | Open the conversation in VS Code (Claude can prefill `{prompt}`) |
+| POST | `/api/tasks/:id/terminal` | Open the conversation in a terminal (`{terminal}` overrides the setting, e.g. `"git-bash"`) |
+| GET | `/api/terminals` | Terminals installed on this machine and the one selected |
 | POST / DELETE | `/api/hosts`, `/api/hosts/:id` | Add / remove a remote machine `{url, token}` |
 | GET | `/api/launch/options` | Projects, agents, models and effort levels for a new task |
 | GET | `/api/repositories` | Recent accessible GitHub repositories via the host’s GitHub CLI |
@@ -323,7 +326,7 @@ Settings live in `~/.vibeportal/config.json` (mode 0600); most can be changed on
 | `CLAUDE_CONFIG_DIR` / `CODEX_HOME` | Claude Code / Codex data directories (defaults on first run) |
 | `ANTHROPIC_ADMIN_KEY` / `OPENAI_ADMIN_KEY` | Initial Admin keys |
 
-`config.json` also takes `claudeBin` / `codexBin` (when the CLIs aren't on PATH), `suggestModel`, and `prices` (e.g. `{"gpt-6-astra": {"input": 2, "output": 8, "cacheRead": 0.2}}`, USD per million tokens).
+`config.json` also takes `claudeBin` / `codexBin` (when the CLIs aren't on PATH), `suggestModel`, `terminal` (`auto`, `wt`, `pwsh`, `powershell`, `cmd`, `git-bash`, `gnome-terminal`, `konsole`, …), and `prices` (e.g. `{"gpt-6-astra": {"input": 2, "output": 8, "cacheRead": 0.2}}`, USD per million tokens).
 
 ## Remote access
 

@@ -243,6 +243,16 @@ export function TaskActions({
             🧩 {t.openInVscode}
           </button>
         )}
+        {/* a terminal opens on the machine itself, like VS Code */}
+        {!away && !task.host && (task.cwd || task.kind === 'claude-code' || task.kind === 'codex' || (task.kind === 'dispatch' && task.sessionId)) && (
+          <button
+            className="btn ghost"
+            onClick={() => void api.openInTerminal(task.id).then((r) => setMsg(t.openedInTerminal.replace('{name}', r.terminal.name)), (e) => setMsg((e as Error).message))}
+            title={t.openInTerminalHelp}
+          >
+            ⌨ {t.openInTerminal}
+          </button>
+        )}
         {task.canContinue && (
           <button className="btn ghost" onClick={suggest} disabled={!!busy}>
             💡 {busy === 'suggest' ? t.suggesting : t.suggest}

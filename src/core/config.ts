@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { normalizeCloneDir } from './repositories';
-import type { ClaudePet, CodexPet, PetCharacter, PublicSettings, RemoteHostConfig, SettingsPatch, TunnelProvider } from '../shared/types';
+import { isTerminalPref } from './terminals';
+import type { ClaudePet, CodexPet, PetCharacter, PublicSettings, RemoteHostConfig, SettingsPatch, TerminalPref, TunnelProvider } from '../shared/types';
 
 export interface Config {
   claudeDir: string;
@@ -18,6 +19,8 @@ export interface Config {
   pet: { enabled: boolean; size: number; character: PetCharacter; claudePet: ClaudePet; codexPet: CodexPet };
   /** model alias passed to `claude -p --model` for next-step suggestions */
   suggestModel: string;
+  /** terminal "Open in terminal" uses ('auto': the first one installed) */
+  terminal: TerminalPref;
   /** explicit CLI paths when they are not on PATH (e.g. GUI launch without a login shell) */
   claudeBin: string;
   codexBin: string;
@@ -67,6 +70,7 @@ function defaults(): Config {
     notifications: true,
     pet: { enabled: true, size: 140, character: 'duo', claudePet: 'crab', codexPet: 'bot' },
     suggestModel: 'haiku',
+    terminal: 'auto',
     claudeBin: '',
     codexBin: '',
     prices: {},
@@ -99,6 +103,7 @@ export function loadConfig(): Config {
     const raw = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
     cfg = { ...base, ...raw, pet: { ...base.pet, ...(raw.pet || {}) } };
     cfg.pet = migratePet(cfg.pet as unknown as Record<string, unknown>);
+    if (!isTerminalPref(cfg.terminal)) cfg.terminal = 'auto';
     // keep the new secret stable across restarts, or every login would expire on restart
     if (!raw.sessionSecret) saveConfig(cfg);
   } catch {
@@ -127,6 +132,7 @@ export function toPublic(cfg: Config): PublicSettings {
     notifications: cfg.notifications,
     pet: { ...cfg.pet },
     suggestModel: cfg.suggestModel,
+    terminal: cfg.terminal,
     anthropicAdminKeySet: !!cfg.anthropicAdminKey,
     openaiAdminKeySet: !!cfg.openaiAdminKey,
     launchAtLogin: cfg.launchAtLogin,
@@ -189,6 +195,7 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
     if (p.pet.codexPet === 'bot' || p.pet.codexPet === 'whale' || p.pet.codexPet === 'frog') next.pet.codexPet = p.pet.codexPet;
   }
   if (typeof p.suggestModel === 'string' && /^[\w.:-]{1,64}$/.test(p.suggestModel.trim())) next.suggestModel = p.suggestModel.trim();
+  if (isTerminalPref(p.terminal)) next.terminal = p.terminal;
   if (typeof p.remotePassword === 'string') {
     if (p.remotePassword === '') {
       next.remotePassword = null; // the tunnel stays only if a Google account still guards it (checked below)
