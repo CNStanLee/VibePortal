@@ -7,7 +7,8 @@ import path from 'node:path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-office-'));
 process.env.VIBEPORTAL_HOME = home;
 
-import { OFFICE_GRANTS, applyPreset, presetOf, specOf, undelivered, assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeNode } from '../src/shared/office';
+import { OFFICE_GRANTS, applyPreset, presetOf, specOf, undelivered, assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeHelper, type OfficeNode } from '../src/shared/office';
+import { subagentsOf } from '../src/core/subagents';
 import { Office, cleanTeam, parsePlan, parseReview, planPrompt, reviewPrompt, type OfficeHost } from '../src/core/office';
 import type { TaskInfo } from '../src/shared/types';
 
@@ -204,6 +205,68 @@ test('office: a run stops everything once the budget is spent', () => {
   assert.equal(run.progress.a.error, 'over budget');
   assert.throws(() => office.startRun('nope', () => true), /no such team/);
   assert.throws(() => office.startRun(office.saveTeam({ name: 'X', cwd: path.join(home, 'missing'), nodes: [node('a')] }).id, () => false), /folder/);
+});
+
+test('office: a desk follows its conversation into a later run, and its sub-agents join it', () => {
+  const office = new Office();
+  const { host, bind } = fakeHost();
+  let helpers: OfficeHelper[] = [{ id: 'h1', name: 'review A', state: 'running', startedAt: new Date().toISOString(), verb: 'read', doing: 'paper.pdf' }];
+  host.helpers = () => helpers;
+  bind(office);
+  office.attach(host);
+  const team = office.saveTeam({ name: 'R', budget: 0.5, cwd: home, nodes: [node('lead', undefined, { role: 'lead' })] });
+  const run = office.startRun(team.id, () => true);
+  const j1 = host.started[0].jobId;
+  const task = (id: string, sessionTokens: number, startedAt = new Date().toISOString()) => ({ id, kind: 'dispatch', title: '', state: 'running', sessionId: 's1', startedAt, updatedAt: '', workload: { tokensPerMin: 0, sessionTokens, model: 'claude-sonnet-5-5' } }) as TaskInfo;
+  office.observe([task(`dispatch:${j1}`, 1000)]);
+  assert.equal(run.progress.lead.sessionId, 's1');
+  assert.deepEqual(run.progress.lead.helpers?.map((h) => [h.name, h.state]), [['review A', 'running']], 'a sub-agent it started is on the floor');
+  host.finish(0);
+  assert.equal(run.state, 'done');
+  assert.equal(run.progress.lead.helpers?.[0].state, 'stopped', 'its run ended: so did the sub-agent');
+
+  // the developer continues the lead's conversation: a new background run of the same session
+  helpers = [...helpers, { id: 'h2', name: 'edit B', state: 'running', startedAt: new Date().toISOString() }];
+  const later = new Date(Date.now() + 1000).toISOString();
+  office.observe([task('dispatch:j-next', 400_000, later)]);
+  assert.equal(run.state, 'running', 'the run opens again');
+  assert.ok(run.resumedAt);
+  assert.equal(run.progress.lead.state, 'running');
+  assert.equal(run.progress.lead.round, 2);
+  assert.equal(run.progress.lead.jobId, 'j-next');
+  assert.equal(run.progress.lead.helpers?.length, 2);
+  assert.ok(run.spent > run.budget);
+  assert.equal(run.state, 'running', 'taken up by the developer: the budget does not stop it');
+  office.onJob({ id: 'j-next', state: 'done' });
+  assert.equal(run.progress.lead.state, 'done');
+  assert.equal(run.progress.lead.report, 'report of dispatch:j-next');
+  assert.equal(run.state, 'done');
+  // an older run of the team does not follow; neither does the same task again
+  office.observe([task('dispatch:j-next', 400_000, later)]);
+  assert.equal(run.state, 'done');
+});
+
+test('office: sub-agents are read from a session’s transcript folder', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-sub-'));
+  const transcript = path.join(dir, 'sess.jsonl');
+  fs.writeFileSync(transcript, '');
+  const sub = path.join(dir, 'sess', 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  const line = (o: object) => JSON.stringify(o) + '\n';
+  fs.writeFileSync(path.join(sub, 'agent-a1.meta.json'), JSON.stringify({ agentType: 'general-purpose', description: 'Reviewer 1' }));
+  fs.writeFileSync(path.join(sub, 'agent-a1.jsonl'), line({ type: 'user', message: { content: 'go' } }) + line({ type: 'assistant', cwd: dir, message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: path.join(dir, 'paper.tex') } }] } }) + line({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x' }] } }));
+  fs.writeFileSync(path.join(sub, 'agent-a2.meta.json'), JSON.stringify({ description: 'Reviewer 2' }));
+  fs.writeFileSync(path.join(sub, 'agent-a2.jsonl'), line({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] } }));
+  fs.writeFileSync(path.join(sub, 'agent-a3.jsonl'), line({ type: 'user', message: { content: [{ type: 'text', text: '[Request interrupted by user]' }] } }));
+  const list = subagentsOf(transcript);
+  const by = Object.fromEntries(list.map((h) => [h.id, h]));
+  assert.equal(list.length, 3);
+  assert.deepEqual([by.a1.name, by.a1.type, by.a1.state, by.a1.verb, by.a1.doing], ['Reviewer 1', 'general-purpose', 'running', 'read', 'paper.tex']);
+  assert.equal(by.a2.state, 'done');
+  assert.ok(by.a2.endedAt);
+  assert.equal(by.a3.state, 'stopped');
+  assert.deepEqual(subagentsOf(transcript, Date.now() + 60_000), [], 'only the ones started since');
+  assert.deepEqual(subagentsOf(path.join(dir, 'none.jsonl')), []);
 });
 
 test('office: default workspaces are created on first run, isolated, persisted and reused', () => {

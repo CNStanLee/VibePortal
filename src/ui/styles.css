@@ -6556,6 +6556,85 @@ a.btn {
   transform: scale(1.25);
 }
 
+/* sub-agents a desk started: small cards below the team, wired to their desk */
+.helpers-label {
+  position: absolute;
+  left: 24px;
+  font-weight: 650;
+}
+.helper {
+  --ag: var(--c-claude);
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1.5px dashed color-mix(in srgb, var(--ag) 45%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  animation: helper-in 0.45s ease-out both;
+  transition: opacity 0.3s ease, border-color 0.2s ease;
+}
+.helper.ag-codex {
+  --ag: var(--c-openai);
+}
+.helper.st-running {
+  border-style: solid;
+  animation: helper-in 0.45s ease-out both, desk-busy 2.4s ease-in-out infinite;
+}
+.helper.st-done {
+  border-color: color-mix(in srgb, var(--good) 55%, var(--border));
+}
+.helper.st-stopped {
+  opacity: 0.55;
+}
+.helper-text {
+  display: grid;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.helper-text b,
+.helper-text span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.helper-text span {
+  color: var(--muted);
+}
+.helper-edge .edge-line {
+  stroke-width: 1.5;
+  stroke-dasharray: 2 5;
+}
+.edge.helper-edge.st-skipped .edge-line {
+  opacity: 0.4;
+}
+@keyframes helper-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.9);
+  }
+}
+.desk-round {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+.office-asks .helper-running {
+  border-left-color: var(--accent);
+}
+.office-asks .helper-done {
+  border-left-color: var(--good);
+}
+
 /* couriers: a memo slides down to a desk that starts, a report crate is carried up when it is done */
 .courier {
   position: absolute;

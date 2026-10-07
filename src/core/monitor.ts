@@ -3,6 +3,7 @@ import { SkillGraphStore } from './skillGraph';
 import { ResetTracker } from './resets';
 import { ModelCatalog, catalogEfforts, type AgentCatalog } from './models';
 import { Office, parsePlan, planPrompt } from './office';
+import { subagentsOf } from './subagents';
 import { weeklyRates } from '../shared/office';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
@@ -112,6 +113,10 @@ export class Monitor extends EventEmitter {
         return ctx.lastReply ?? ctx.output?.trim();
       },
       jobs: () => this.actions.jobList(),
+      helpers: (sid, since) => {
+        const file = this.claudeLocal.transcripts.get(sid);
+        return file ? subagentsOf(file, since) : [];
+      },
       changed: () => this.poke(),
       judge: (prompt, model) => this.actions.ask(prompt, { claudeBin: this.cfg.claudeBin, model, timeoutMs: 120_000 }),
     });

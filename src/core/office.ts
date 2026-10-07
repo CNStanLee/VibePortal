@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_GRANTS, OFFICE_GRANTS, OFFICE_ROLES, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, specOf, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
+import { DEFAULT_GRANTS, OFFICE_GRANTS, OFFICE_ROLES, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, specOf, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeHelper, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeRunNode, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
 import type { LaunchAgent, LaunchPermission, TaskInfo } from '../shared/types';
 import { summarize, type Decision } from './permissions';
 import { dataDir } from './config';
@@ -211,7 +211,9 @@ export interface OfficeHost {
   /** the final words of a finished run */
   report(taskId: string): string | undefined;
   /** jobs ActionRunner knows (after a restart: the ones it picked up again) */
-  jobs(): { id: string; running: boolean }[];
+  jobs(): { id: string; running: boolean; sessionId?: string }[];
+  /** the sub-agents a Claude session started since then */
+  helpers?(sessionId: string, sinceMs: number): OfficeHelper[];
   changed(): void;
 }
 
@@ -342,6 +344,7 @@ export class Office {
       p.endedAt = new Date().toISOString();
       p.verb = undefined;
       p.doing = undefined;
+      this.trackHelpers(run, p, true);
       const full = this.host?.report(p.taskId!) ?? job.detail;
       p.report = clip(full, REPORT_MAX);
       if (p.state === 'failed') p.error = clip(job.detail, 300);
@@ -465,12 +468,21 @@ export class Office {
           }
     }
     const byId = new Map(tasks.map((t) => [t.id, t]));
+    const jobs = new Map(host.jobs().map((j) => [j.id, j]));
+    for (const run of this.data.runs) if (this.follow(run, tasks)) dirty = true;
     for (const run of this.data.runs) {
       if (run.state !== 'running') continue;
       let spent = 0;
       for (const n of run.nodes) {
         const p = run.progress[n.id];
         const t = p?.taskId ? byId.get(p.taskId) : undefined;
+        // the conversation it writes to: its later runs are followed by it
+        const sid = t?.sessionId ?? (p?.jobId ? jobs.get(p.jobId)?.sessionId : undefined);
+        if (p && sid && p.sessionId !== sid) {
+          p.sessionId = sid;
+          dirty = true;
+        }
+        if (p && n.agent === 'claude' && this.trackHelpers(run, p)) dirty = true;
         if (t?.workload) {
           if (t.workload.sessionTokens !== p.tokens || !p.movedAt) p.movedAt = new Date().toISOString();
           p.tokens = t.workload.sessionTokens;
@@ -484,10 +496,52 @@ export class Office {
         spent += p?.cost ?? 0;
       }
       run.spent = Math.round((spent + (run.extra ?? 0)) * 1000) / 1000;
-      if (run.spent >= run.budget) this.stopRun(run.id, 'over-budget');
+      // taken up again by the developer: they drive it now, not the budget
+      if (run.spent >= run.budget && !run.resumedAt) this.stopRun(run.id, 'over-budget');
       else if (this.pump(run)) dirty = true;
     }
     if (dirty) this.save();
+  }
+
+  /**
+   * A desk's conversation going on in a later background run (continued from the task
+   * list, or instructions queued on it): the desk follows that run, and a run that had
+   * ended opens again for it. Only the team's latest run follows. Whether anything changed.
+   */
+  private follow(run: OfficeRun, tasks: TaskInfo[]): boolean {
+    if (this.data.runs.filter((r) => r.teamId === run.teamId).pop() !== run) return false;
+    let changed = false;
+    for (const n of run.nodes) {
+      const p = run.progress[n.id];
+      if (!p?.sessionId || p.state === 'running' || p.state === 'waiting') continue;
+      const since = Date.parse(p.startedAt ?? '') || 0;
+      const next = tasks.filter((t) => t.kind === 'dispatch' && t.state === 'running' && t.sessionId === p.sessionId && t.id !== p.taskId && (Date.parse(t.startedAt ?? '') || 0) > since).pop();
+      if (!next) continue;
+      const now = new Date().toISOString();
+      Object.assign(p, { state: 'running', taskId: next.id, jobId: next.id.replace(/^dispatch:/, ''), startedAt: now, round: (p.round ?? 1) + 1 });
+      for (const k of ['endedAt', 'error', 'verb', 'doing', 'checks'] as const) delete p[k];
+      if (run.state !== 'running') {
+        run.state = 'running';
+        run.resumedAt = now;
+        delete run.endedAt;
+      }
+      changed = true;
+    }
+    if (changed) this.notify();
+    return changed;
+  }
+
+  /** The sub-agents a desk started this run, for the floor; whether they changed. */
+  private trackHelpers(run: OfficeRun, p: OfficeRunNode, ended = false): boolean {
+    if (!p.sessionId || !this.host?.helpers) return false;
+    if (p.state !== 'running' && !ended && !p.helpers?.some((h) => h.state === 'running')) return false;
+    let list = this.host.helpers(p.sessionId, Date.parse(run.startedAt) || 0);
+    // the desk's run is over: whoever it left at work was stopped with it
+    if (p.state !== 'running') list = list.map((h) => (h.state === 'running' ? { ...h, state: 'stopped' as const, endedAt: p.endedAt, verb: undefined, doing: undefined } : h));
+    const sig = (l?: OfficeHelper[]) => (l ?? []).map((h) => `${h.id}:${h.state}`).join();
+    const changed = sig(list) !== sig(p.helpers);
+    p.helpers = list.length ? list : undefined;
+    return changed;
   }
 
   /**

@@ -36,6 +36,7 @@ import {
   wouldCycle,
   type OfficeAsk,
   type OfficeGrant,
+  type OfficeHelper,
   type OfficeNode,
   type OfficeReview,
   type OfficeNodeState,
@@ -104,6 +105,11 @@ const loadPlanner = (): { model: string; effort: string } => {
     return PLANNER_DEFAULT;
   }
 };
+/** sub-agents' cards on the floor */
+const HELPER_W = 150;
+const HELPER_H = 64;
+const HELPERS_PER_ROW = 6;
+const HELPER_KEY: Record<OfficeHelper['state'], keyof Dict> = { running: 'deskRunning', done: 'officeHelperDone', stopped: 'officeHelperStopped' };
 /** minutes without new tokens before a working desk says it may be stuck */
 const QUIET_MIN = 5;
 const RECENT_MS = 30 * 60_000;
@@ -445,17 +451,38 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
       </div>
     );
 
-  // the floor grows with the team
-  const W = Math.max(860, ...nodes.map((n) => n.x + DESK_W + 120));
-  const H = Math.max(500, ...nodes.map((n) => n.y + DESK_H + 120));
-  const edgePath = (p: OfficeNode, c: OfficeNode) => {
+  const edgePath = (p: OfficeNode, c: { x: number; y: number }, w = DESK_W) => {
     const x1 = p.x + DESK_W / 2;
     const y1 = p.y + DESK_H - 4;
-    const x2 = c.x + DESK_W / 2;
+    const x2 = c.x + w / 2;
     const y2 = c.y + 4;
     const my = (y1 + y2) / 2;
     return `M${x1} ${y1} C${x1} ${my} ${x2} ${my} ${x2} ${y2}`;
   };
+  // the floor grows with the team
+  const W0 = Math.max(860, ...nodes.map((n) => n.x + DESK_W + 120));
+  // sub-agents a desk started join the floor below the team, a band of cards per desk, wired to it
+  const helpers: { h: OfficeHelper; desk: OfficeNode; x: number; y: number; d: string }[] = [];
+  const helpersTop = (nodes.length ? Math.max(...nodes.map((n) => n.y + DESK_H)) : 0) + 64;
+  {
+    let y = helpersTop;
+    for (const n of nodes) {
+      const list = progress[n.id]?.helpers ?? [];
+      for (let i = 0; i < list.length; i += HELPERS_PER_ROW) {
+        const row = list.slice(i, i + HELPERS_PER_ROW);
+        const width = row.length * (HELPER_W + 12) - 12;
+        const x0 = Math.max(24, Math.min(n.x + DESK_W / 2 - width / 2, W0 - width - 24));
+        row.forEach((h, j) => {
+          const at = { x: x0 + j * (HELPER_W + 12), y };
+          helpers.push({ h, desk: n, ...at, d: edgePath(n, at, HELPER_W) });
+        });
+        y += HELPER_H + 24;
+      }
+      if (list.length) y += 16;
+    }
+  }
+  const W = Math.max(W0, ...helpers.map((c) => c.x + HELPER_W + 24));
+  const H = Math.max(500, ...nodes.map((n) => n.y + DESK_H + 120), ...helpers.map((c) => c.y + HELPER_H + 40));
   const edges = nodes.filter((n) => n.parent && byId.has(n.parent)).map((c) => ({ c, p: byId.get(c.parent!)!, d: edgePath(byId.get(c.parent!)!, c) }));
   const overBudget = est.cost > team.budget;
   const spent = showRun ? run!.spent : 0;
@@ -636,6 +663,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                 {active && <span className="office-live" aria-hidden />}
                 {t[RUN_KEY[run!.state]]}
                 <span className="muted"> · {relTime(run!.startedAt, t, lang)}</span>
+                {active && run!.resumedAt && <span className="muted" title={t.officeResumed}> · ↻</span>}
               </span>
             )}
             {active ? (
@@ -770,6 +798,11 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                       </g>
                     );
                   })}
+                  {helpers.map(({ h, desk, d }) => (
+                    <g key={`${desk.id}-${h.id}`} className={`edge helper-edge st-${h.state === 'stopped' ? 'skipped' : h.state}`}>
+                      <path className="edge-line" d={d} />
+                    </g>
+                  ))}
                   {link &&
                     (() => {
                       const f = byId.get(link.from);
@@ -840,6 +873,46 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                       ×
                     </button>
                   ))}
+
+                {/* sub-agents: the errand goes down when one starts, its answer is carried up when it is done */}
+                {helpers.map(({ h, desk, d }) => {
+                  const up = h.state === 'done' && h.endedAt && now - Date.parse(h.endedAt) < 7000;
+                  const down = h.state === 'running' && now - Date.parse(h.startedAt) < 4000;
+                  if (!up && !down) return null;
+                  return (
+                    <div key={`${desk.id}-${h.id}-${up ? 'up' : 'down'}`} className={`courier ${up ? 'up' : 'down'}`} style={{ offsetPath: `path('${d}')` }} aria-hidden>
+                      {up ? <span className="crate" /> : <span className="memo">✉</span>}
+                    </div>
+                  );
+                })}
+                {helpers.length > 0 && (
+                  <div className="helpers-label small muted" style={{ top: helpersTop - 28 }} title={t.officeHelpersHelp}>
+                    🤝 {t.officeHelpers} · {helpers.filter((c) => c.h.state === 'running').length}/{helpers.length}
+                  </div>
+                )}
+                {helpers.map(({ h, desk, x, y }) => (
+                  <div
+                    key={`${desk.id}-${h.id}`}
+                    className={`helper ag-${desk.agent} st-${h.state}`}
+                    style={{ left: x, top: y, width: HELPER_W, height: HELPER_H }}
+                    title={`${desk.name} → ${h.name}${h.type ? ` (${h.type})` : ''}${h.doing ? `\n${h.doing}` : ''}`}
+                    onClick={() => setSelected(desk.id)}
+                  >
+                    <Mascot kind={kindOf(desk.agent)} mood={h.state === 'running' ? 'working' : h.state === 'done' ? 'happy' : 'sleeping'} size={22} />
+                    <div className="helper-text">
+                      <b>{h.name}</b>
+                      <span>
+                        {h.state === 'running' ? (
+                          <>
+                            <span aria-hidden>{(h.verb && VERB_ICON[h.verb]) ?? '⌨'}</span> {h.doing || t.deskRunning}
+                          </>
+                        ) : (
+                          t[HELPER_KEY[h.state]]
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                ))}
 
                 {nodes.map((n) => (
                   <Desk
@@ -1028,6 +1101,11 @@ function Desk({
       </div>
       <div className="desk-name">
         <span aria-hidden>{ROLE_ICON[node.role]}</span> {node.name}
+        {(prog?.round ?? 1) > 1 && (
+          <span className="desk-round" title={fmt(t.officeRound, { n: prog!.round! })}>
+            ↻{prog!.round}
+          </span>
+        )}
       </div>
       <div className="desk-grants" aria-label={t.officePerms}>
         {/* during a run: what it holds now (handed-down ones marked); otherwise what it is set to */}
@@ -1288,6 +1366,23 @@ function NodeEditor({
                     </span>
                     <span className="mono muted">{a.summary}</span>
                     {a.reason && <span className="muted">“{a.reason}”</span>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {!!prog.helpers?.length && (
+            <>
+              <span className="nt-label" title={t.officeHelpersHelp}>
+                {t.officeHelpers}
+              </span>
+              <ul className="office-asks">
+                {prog.helpers.map((h) => (
+                  <li key={h.id} className={`helper-${h.state}`}>
+                    <span>
+                      🤝 <b>{h.name}</b> · <span className="ask-state">{t[HELPER_KEY[h.state]]}</span>
+                    </span>
+                    {h.doing && <span className="mono muted">{h.doing}</span>}
                   </li>
                 ))}
               </ul>

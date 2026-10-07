@@ -73,6 +73,10 @@ export interface OfficeRunNode {
   state: OfficeNodeState;
   jobId?: string;
   taskId?: string;
+  /** its conversation: a later run of it (continued from the task list, queued instructions) is followed here */
+  sessionId?: string;
+  /** which round of its conversation is going (2 = continued once) */
+  round?: number;
   startedAt?: string;
   endedAt?: string;
   /** what the agent handed up to its supervisor (clipped) */
@@ -95,6 +99,21 @@ export interface OfficeRunNode {
   /** its supervisor's verdict on the delivery (from the supervisor's report) */
   accepted?: boolean;
   acceptNote?: string;
+  /** sub-agents it started (Claude's Agent tool): they join the floor below it */
+  helpers?: OfficeHelper[];
+}
+
+/** A sub-agent a desk handed part of its work to. */
+export interface OfficeHelper {
+  id: string;
+  /** what it was asked to do (the Agent call's description) */
+  name: string;
+  type?: string;
+  state: 'running' | 'done' | 'stopped';
+  startedAt: string;
+  endedAt?: string;
+  verb?: ActivityVerb;
+  doing?: string;
 }
 
 /** A success criterion as the desk reported it: met, not met, or not said. */
@@ -130,6 +149,8 @@ export interface OfficeRun {
   deliverable?: string;
   criteria?: string[];
   progress: Record<string, OfficeRunNode>;
+  /** a desk's conversation was taken up again after the run ended: from then on the developer drives it, not the budget */
+  resumedAt?: string;
 }
 
 export interface OfficeView {
