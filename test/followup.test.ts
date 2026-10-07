@@ -73,7 +73,7 @@ test('the team planner runs on the model and reasoning effort picked for it', { 
   fs.writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho "$*" >> "${log}"\ncat "${reply}"\n`, { mode: 0o755 });
   const m = new Monitor({ ...loadConfig(), claudeBin: bin, claudeDir: path.join(home, 'claude-dir') });
   const team = await m.planTeam({ goal: 'Ship it', budget: 3, model: 'opus', effort: 'xhigh' });
-  assert.deepEqual(team.nodes[0].criteria, ['done']);
+  assert.deepEqual(team.criteria, ['done'], 'the lead’s criteria are the team’s final ones');
   await m.planTeam({ goal: 'Ship it', budget: 3, model: 'bad model; rm', effort: 'turbo' });
   const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
   assert.match(calls[0], /--model opus --effort xhigh/);

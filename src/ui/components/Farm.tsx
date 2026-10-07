@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, allCrops, colorsFor, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
+import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, allCrops, colorsFor, cropPrice, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
 import { api } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
 import { Mascot } from './Mascots';
 import { PlantSprite, SeedPacket, colorSwatch } from './FarmArt';
 import { FarmSocialSection } from './FarmSocial';
+import { AdBanner, AdPlayer, PondSection } from './FarmPond';
+import { AD_REWARD } from '../../shared/farmAds';
 
 const RARITY_NAME: Record<Rarity, { zh: string; en: string }> = {
   common: { zh: '普通', en: 'Common' },
@@ -45,8 +47,9 @@ function growLabel(min: number, lang: Lang): string {
 
 /**
  * The crab farm: the tokens you burn buy seed draws, seeds grow into pixel
- * plants, and the plants sit in a showcase (or wait in the storehouse). Purely
- * for looks.
+ * plants, and the plants sit in a showcase (or wait in the storehouse). Plants
+ * and fish from the pond sell for tokens, and so does watching an ad; the
+ * tokens buy more seeds and fishing gear.
  */
 export function FarmPage() {
   const { t, lang } = useT();
@@ -60,6 +63,13 @@ export function FarmPage() {
   const [shown, setShown] = useState<Crop | null>(null);
   const [fresh, setFresh] = useState<Crop[] | null>(null);
   const [view, setView] = useState<'showcase' | 'store' | 'dex'>('showcase');
+  const [ad, setAd] = useState<{ id: string; ad: string; seconds: number } | null>(null);
+  const [toast, setToast] = useState('');
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(''), 3500);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   const load = () =>
     api
@@ -86,6 +96,8 @@ export function FarmPage() {
       const r = await api.farmAct<R>(action, body);
       setFarm(r.farm);
       setNow(Date.now());
+      // what a sale or an ad brought in
+      if ((action === 'sell' || action === 'sell-fish' || action === 'ad-claim') && typeof r.result === 'number') setToast(fmt(t.farmEarnedNow, { n: fmtTokens(r.result) }));
       return r.result;
     } catch (e) {
       setError((e as Error).message);
@@ -144,6 +156,20 @@ export function FarmPage() {
           <div className="muted tiny">
             {fmt(t.farmEarned, { n: fmtTokens(farm.earnedTokens), per: fmtTokens(farm.tokensPerDraw) })}
           </div>
+          <div className="farm-coins small" title={fmt(t.farmIncomeHelp, { crops: fmtTokens(farm.income.crops), fish: fmtTokens(farm.income.fish), ads: fmtTokens(farm.income.ads) })}>
+            🪙 <b>{fmtTokens(Math.max(0, farm.balance))}</b> <span className="muted">{t.farmBalance}</span>
+            {farm.incomeTokens > 0 && <span className="muted tiny"> · {fmt(t.farmIncome, { n: fmtTokens(farm.incomeTokens) })}</span>}
+          </div>
+          <button
+            className="btn farm-ad-btn"
+            disabled={busy || farm.adsLeft === 0}
+            onClick={async () => {
+              const r = await act<{ id: string; ad: string; seconds: number }>('ad', {});
+              if (r) setAd(r);
+            }}
+          >
+            📺 {fmt(t.adWatch, { n: fmtTokens(AD_REWARD) })} <span className="muted tiny">{fmt(t.adLeftToday, { n: farm.adsLeft })}</span>
+          </button>
         </div>
         <div className="farm-draw-btns">
           <button className="btn primary" disabled={busy || farm.drawsAvailable < 1} onClick={() => void doDraw(1)}>
@@ -165,7 +191,14 @@ export function FarmPage() {
           <p className="muted tiny">{fmt(t.farmOddsNote, { pity: PITY - farm.pity })}</p>
         </details>
         {error && <p className="action-msg small">{error}</p>}
+        {toast && (
+          <p className="farm-toast small" role="status">
+            🪙 {toast}
+          </p>
+        )}
       </section>
+
+      <AdBanner />
 
       <section className="card farm-field-card">
         <header className="card-head">
@@ -210,6 +243,8 @@ export function FarmPage() {
         <SeedBag seeds={farm.seeds} lang={lang} onPick={firstEmpty >= 0 ? (s) => void plantSeed(firstEmpty, s.id) : undefined} />
       </section>
 
+      <PondSection farm={farm} act={act} busy={busy} rarityName={(r) => RARITY_NAME[r][lang]} />
+
       <section className="card">
         <header className="card-head">
           <div className="seg" role="tablist">
@@ -235,6 +270,20 @@ export function FarmPage() {
 
       <FarmSocialSection farm={farm} />
 
+      {ad && (
+        <Modal onClose={() => setAd(null)} label={t.adTag}>
+          <AdPlayer
+            ad={ad.ad}
+            seconds={ad.seconds}
+            busy={busy}
+            onClose={() => setAd(null)}
+            onClaim={async () => {
+              const got = await act<number>('ad-claim', { id: ad.id });
+              if (got) setAd(null);
+            }}
+          />
+        </Modal>
+      )}
       {picking !== null && (
         <Modal onClose={() => setPicking(null)} label={t.farmPickSeed}>
           <h3>{t.farmPickSeed}</h3>
@@ -293,7 +342,21 @@ export function FarmPage() {
               {shown.mutated && <span className="mutated"> · ✨ {t.farmMutated}</span>}
             </p>
             <p className="muted tiny">{fmt(t.farmHarvestedOn, { d: new Date(shown.harvestedAt).toLocaleString() })}</p>
+            <p className="small">
+              🪙 {fmt(t.farmWorth, { n: fmtTokens(cropPrice(shown)) })}
+            </p>
             <div className="action-row">
+              <button
+                className="btn"
+                disabled={busy}
+                onClick={() => {
+                  if (rank(shown.rarity) >= rank('epic') && !window.confirm(fmt(t.farmSellAsk, { name: plantName(shown, lang), n: fmtTokens(cropPrice(shown)) }))) return;
+                  void act('sell', { cropId: shown.id });
+                  setShown(null);
+                }}
+              >
+                💰 {t.farmSell}
+              </button>
               <button className="btn ghost" onClick={() => setShown(null)}>
                 {t.close}
               </button>

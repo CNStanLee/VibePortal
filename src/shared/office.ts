@@ -10,7 +10,9 @@ export type OfficeGrant = 'edit' | 'run' | 'git' | 'web' | 'tools';
 export const OFFICE_GRANTS: OfficeGrant[] = ['edit', 'run', 'git', 'web', 'tools'];
 /** How a supervisor answers its people's requests for a permission it holds. */
 export type OfficeReview = 'agent' | 'auto' | 'user';
-/** a new desk's permissions, by role (then cut down to what its supervisor holds) */
+/** a new desk holds everything (the team can be narrowed down with a preset or per desk) */
+export const DEFAULT_GRANTS: OfficeGrant[] = [...OFFICE_GRANTS];
+/** least privilege, by role (the "by role" preset; then cut down to what its supervisor holds) */
 export const ROLE_GRANTS: Record<OfficeRole, OfficeGrant[]> = {
   lead: ['edit', 'run', 'git'],
   manager: ['edit', 'run'],
@@ -53,6 +55,9 @@ export interface OfficeTeam {
   id: string;
   name: string;
   goal: string;
+  /** what the team finally hands to the developer, and how it is accepted: settled first, the desks' deliverables are cut from it */
+  deliverable?: string;
+  criteria?: string[];
   /** the whole task package may spend at most this much (USD, API-equivalent) */
   budget: number;
   /** the folder every agent works in */
@@ -122,6 +127,8 @@ export interface OfficeRun {
   extra?: number;
   /** the team as it was when the run started */
   nodes: OfficeNode[];
+  deliverable?: string;
+  criteria?: string[];
   progress: Record<string, OfficeRunNode>;
 }
 
@@ -160,6 +167,23 @@ export function cascadeGrants(nodes: OfficeNode[]): OfficeNode[] {
   return nodes.map((n) => ({ ...n, grants: of(n) }));
 }
 
+/** Team-wide permission presets: everyone the same set, or each its role's share ("role"). */
+export type OfficePreset = 'all' | 'build' | 'edit' | 'read' | 'role';
+export const OFFICE_PRESETS: OfficePreset[] = ['all', 'build', 'edit', 'read', 'role'];
+const PRESET_GRANTS: Record<Exclude<OfficePreset, 'role'>, OfficeGrant[]> = { all: DEFAULT_GRANTS, build: ['edit', 'run'], edit: ['edit'], read: [] };
+
+/** Every desk set to the preset (still a desk holds only what its supervisor holds). */
+export function applyPreset(nodes: OfficeNode[], preset: OfficePreset): OfficeNode[] {
+  return cascadeGrants(nodes.map((n) => ({ ...n, grants: [...(preset === 'role' ? ROLE_GRANTS[n.role] : PRESET_GRANTS[preset])] })));
+}
+
+/** The preset the team's permissions match, if any. */
+export function presetOf(nodes: OfficeNode[]): OfficePreset | undefined {
+  if (!nodes.length) return undefined;
+  const same = (a: OfficeGrant[], b: OfficeGrant[]) => a.length === b.length && a.every((g) => b.includes(g));
+  return OFFICE_PRESETS.find((p) => applyPreset(nodes, p).every((n, i) => same(n.grants, nodes[i].grants)));
+}
+
 /**
  * A team as stored by any version: desks saved before they had permissions get their
  * role's, and nothing is left that would trip the floor up.
@@ -178,7 +202,7 @@ export function normalizeNodes(nodes: unknown): OfficeNode[] {
           role,
           agent: n.agent === 'codex' ? 'codex' : 'claude',
           task: typeof n.task === 'string' ? n.task : '',
-          grants: Array.isArray(n.grants) ? n.grants : ROLE_GRANTS[role],
+          grants: Array.isArray(n.grants) ? n.grants : DEFAULT_GRANTS,
           criteria: Array.isArray(n.criteria) ? n.criteria.filter((c) => typeof c === 'string') : undefined,
           x: Number.isFinite(n.x) ? n.x! : 24,
           y: Number.isFinite(n.y) ? n.y! : 24,
@@ -272,6 +296,24 @@ export function autoLayout(nodes: OfficeNode[]): OfficeNode[] {
 }
 
 // ── deliveries: what goes up each reporting line, and when it counts ───────
+export interface Deliverables {
+  nodes: OfficeNode[];
+  /** the team's final deliverable and its criteria */
+  deliverable?: string;
+  criteria?: string[];
+}
+
+/** What a desk delivers and how it is accepted: its own, or — at the top of the team — the team's final deliverable. */
+export function specOf(team: Deliverables, n: OfficeNode): { deliverable?: string; criteria: string[] } {
+  const top = !n.parent || !team.nodes.some((m) => m.id === n.parent);
+  const deliverable = n.deliverable?.trim() || (top ? team.deliverable?.trim() : undefined) || undefined;
+  const own = (n.criteria ?? []).map((c) => c.trim()).filter(Boolean);
+  return { deliverable, criteria: own.length || !top ? own : (team.criteria ?? []).map((c) => c.trim()).filter(Boolean) };
+}
+
+/** Desks that don't know yet what they deliver (deliverables come first: a team isn't ready without them). */
+export const undelivered = (team: Deliverables) => team.nodes.filter((n) => !specOf(team, n).deliverable);
+
 /**
  * When a desk hands its deliverable up: 1 for the people who start right away, then
  * one more for every level of reports it waits for.
@@ -461,25 +503,29 @@ const GRANT_LINE: Record<OfficeGrant, string> = {
 };
 
 /** What a desk is told: the team goal, who it reports to, its own task, and its people's reports. */
-export function nodePrompt(team: { goal: string; nodes: OfficeNode[] }, n: OfficeNode, reports: { node: OfficeNode; state: OfficeNodeState; report?: string }[]): string {
+export function nodePrompt(team: { goal: string } & Deliverables, n: OfficeNode, reports: { node: OfficeNode; state: OfficeNodeState; report?: string }[]): string {
   const chain = chainOf(team.nodes, n.id);
   const who = (m: OfficeNode) => `${m.name} (${m.role}, ${m.agent === 'codex' ? 'Codex' : 'Claude'})`;
   // the whole prompt stays well under the launcher's 20k characters
   const perReport = Math.floor(Math.min(4000, 12_000 / Math.max(1, reports.length)));
-  const crit = (n.criteria ?? []).map((c) => c.trim()).filter(Boolean);
-  const spec = (m: OfficeNode) =>
-    [m.deliverable?.trim() && `Deliverable: ${m.deliverable.trim().slice(0, 300)}`, m.criteria?.length && `Criteria: ${m.criteria.map((c) => c.trim().slice(0, 160)).join('; ')}`]
+  const mine = specOf(team, n);
+  const crit = mine.criteria;
+  const spec = (m: OfficeNode) => {
+    const x = specOf(team, m);
+    return [x.deliverable && `Deliverable: ${x.deliverable.slice(0, 300)}`, x.criteria.length && `Criteria: ${x.criteria.map((c) => c.slice(0, 160)).join('; ')}`]
       .filter(Boolean)
       .join('\n')
       .slice(0, Math.max(200, Math.floor(4000 / Math.max(1, reports.length))));
+  };
   return [
     `You are ${who(n)} in a team of coding agents working in this folder.`,
     team.goal.trim() ? `The team's goal:\n"""${team.goal.trim().slice(0, 3000)}"""` : '',
     ROLE_LINE[n.role],
     chain.length ? `You report to ${chain.map(who).join(', who reports to ')}. ${chain[0].name}'s assignment: "${chain[0].task.trim().slice(0, 600)}"` : 'You are at the top of the team.',
-    `Your assignment:\n"""${n.task.trim() || 'Do your part toward the goal.'}"""`,
-    n.deliverable?.trim() ? `What you hand to ${chain[0]?.name ?? 'the developer'} (your deliverable): ${n.deliverable.trim().slice(0, 600)}` : '',
+    mine.deliverable ? `What you hand to ${chain[0]?.name ?? 'the developer'} (your deliverable): ${mine.deliverable.slice(0, 600)}` : '',
     crit.length ? `It counts as delivered when:\n${crit.map((c) => `- ${c}`).join('\n')}` : '',
+    chain.length && specOf(team, chain[0]).deliverable ? `It goes into ${chain[0].name}'s deliverable: ${specOf(team, chain[0]).deliverable!.slice(0, 400)}` : '',
+    `Your assignment${mine.deliverable ? ' (how you get there)' : ''}:\n"""${n.task.trim() || 'Do your part toward the goal.'}"""`,
     n.agent === 'claude'
       ? `Your permissions: ${n.grants.length ? n.grants.map((g) => GRANT_LINE[g]).join('; ') : 'read only'}. For anything else just go ahead and try it: the request goes to ${chain.length ? `your supervisor ${chain[0].name}` : 'the developer'}, who decides. If it is refused, work around it or say so in your report.`
       : `You may ${n.grants.some((g) => g === 'edit' || g === 'run') ? 'change files in this folder and run commands' : 'only read this folder'}.`,

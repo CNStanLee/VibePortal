@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MULTI_DRAW, MUTATION, MYTHIC_MUTATION, PITY, RARITIES, RARITY_ODDS, SPECIAL_COLORS, SPECIES, TOKENS_PER_DRAW, WELCOME_DRAWS, allCrops, colorsFor, creditUsage, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, normalizeFarm, plant, stageOf, storeCrop, uproot, type Rarity } from '../src/shared/farm';
 import { farmDaily } from '../src/core/farm';
+import { CROP_PRICE, buyBait, cast, claimAd, cropPrice, reel, sellCrop, sellFish, startAd, takeRod } from '../src/shared/farm';
+import { BAIT_PACK, BAIT_PRICE, CASTS_PER_DAY, FISH, FISH_PRICE, FREE_BAIT_PER_DAY, RODS, fishKind, fishPrice, type Fish } from '../src/shared/farmPond';
+import { AD_REWARD, AD_SECONDS, ADS_PER_DAY, HOUSE_ADS } from '../src/shared/farmAds';
 
 /** a repeatable stand-in for Math.random */
 const seeded = (seed = 1) => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
@@ -151,4 +154,111 @@ test('farm: a legendary turns mythic only at the rarer mutation rate', () => {
   const top = harvest(f, 0, 1e12, () => 0);
   assert.equal(top.rarity, 'mythic');
   assert.equal(top.mutated, undefined);
+});
+
+test('farm: plants sell by quality and colour, and the money buys draws', () => {
+  const s = newFarm('2026-01-01');
+  s.crops.push({ id: 'a', species: 'rose', rarity: 'rare', color: 'gold', harvestedAt: 1 }, { id: 'b', species: 'daisy', rarity: 'common', color: 'red', mutated: true, harvestedAt: 1 });
+  s.stored.push({ id: 'c', species: 'worldtree', rarity: 'mythic', color: 'rainbow', harvestedAt: 1 });
+  assert.equal(cropPrice(s.crops[0]), 450_000, 'gold is worth half again');
+  assert.equal(cropPrice(s.crops[1]), 72_000, 'a mutation adds a fifth');
+  const before = farmView(s).balance;
+  assert.equal(sellCrop(s, 'c'), 20_000_000, 'from the storehouse too');
+  assert.equal(sellCrop(s, 'a'), 450_000);
+  assert.deepEqual(allCrops(s).map((c) => c.id), ['b']);
+  assert.throws(() => sellCrop(s, 'a'), /no such plant/);
+  const v = farmView(s);
+  assert.equal(v.balance - before, 20_450_000);
+  assert.equal(v.incomeTokens, 20_450_000);
+  assert.equal(v.drawsAvailable, Math.floor(v.balance / TOKENS_PER_DRAW));
+  // a seed earns back well under its draw on average: selling is no token mint
+  const avg = RARITIES.reduce((n, r) => n + (RARITY_ODDS[r] / 100) * CROP_PRICE[r], 0);
+  assert.ok(avg < TOKENS_PER_DRAW * 0.5, `avg ${avg}`);
+});
+
+test('farm: fishing — cast, reel in on the bite, the catch sells; bait and daily limits', () => {
+  const s = newFarm('2026-01-01');
+  const t0 = new Date(2026, 0, 2, 9).getTime();
+  let seq = 0;
+  const rnd = () => ((seq = (seq * 9301 + 49297) % 233280) / 233280);
+  const c = cast(s, t0, rnd);
+  assert.ok(c.biteIn >= 3000 && c.biteIn <= 8000, 'the bamboo rod: 3-8 s to a bite');
+  assert.deepEqual(reel(s, c.id, t0 + c.biteIn - 1000, rnd), { result: 'early' });
+  assert.throws(() => reel(s, c.id, t0 + c.biteIn, rnd), /no line/, 'one reel per cast');
+  const c2 = cast(s, t0, rnd);
+  assert.deepEqual(reel(s, c2.id, t0 + c2.biteIn + c2.window + 2000, rnd), { result: 'late' });
+  const c3 = cast(s, t0, rnd);
+  const got = reel(s, c3.id, t0 + c3.biteIn + 200, rnd);
+  assert.equal(got.result, 'caught');
+  const fish = (got as { fish: Fish }).fish;
+  const kind = fishKind(fish.species);
+  assert.equal(kind.rarity, fish.rarity);
+  assert.ok(fish.kg >= kind.kg[0] && fish.kg <= kind.kg[1]);
+  assert.equal(s.caught[fish.species], 1);
+  assert.equal(sellFish(s), fishPrice(fish));
+  assert.equal(s.fish.length, 0);
+  assert.equal(farmView(s).incomeTokens, fishPrice(fish));
+
+  // five free bait a day, then bought bait, and no more than the day's casts
+  cast(s, t0, rnd);
+  cast(s, t0, rnd);
+  assert.equal(farmView(s, t0).freeBaitLeft, 0);
+  assert.throws(() => cast(s, t0, rnd), /no bait/);
+  buyBait(s, 2);
+  assert.equal(s.bait, 2 * BAIT_PACK);
+  assert.equal(s.spentTokens, 2 * BAIT_PACK * BAIT_PRICE);
+  while (farmView(s, t0).castsLeft > 0) cast(s, t0, rnd);
+  assert.equal(s.bait, 2 * BAIT_PACK - (CASTS_PER_DAY - FREE_BAIT_PER_DAY));
+  assert.throws(() => cast(s, t0, rnd), /done for today/);
+  const tomorrow = t0 + 86400_000;
+  assert.equal(farmView(s, tomorrow).castsLeft, CASTS_PER_DAY);
+  assert.equal(farmView(s, tomorrow).freeBaitLeft, FREE_BAIT_PER_DAY);
+  cast(s, tomorrow, rnd);
+  assert.equal(s.bait, 2 * BAIT_PACK - (CASTS_PER_DAY - FREE_BAIT_PER_DAY), 'free bait first');
+});
+
+test('farm: better rods cost tokens and bring rarer fish', () => {
+  const s = newFarm('2026-01-01');
+  assert.throws(() => takeRod(s, 'golden'), /not enough tokens/);
+  s.days['2026-01-01'] = 10_000_000;
+  takeRod(s, 'golden');
+  assert.equal(s.rod, 'golden');
+  assert.deepEqual(s.rods, ['bamboo', 'golden']);
+  const spent = s.spentTokens;
+  takeRod(s, 'bamboo');
+  takeRod(s, 'golden');
+  assert.equal(s.spentTokens, spent, 'a rod you own is free to take up again');
+  assert.throws(() => takeRod(s, 'laser'), /no such rod/);
+  const ev = (r: (typeof RODS)[number]) => RARITIES.reduce((n, q) => n + (r.odds[q] / 100) * FISH_PRICE[q], 0);
+  for (let i = 1; i < RODS.length; i++) assert.ok(ev(RODS[i]) > ev(RODS[i - 1]), `${RODS[i].id} catches better`);
+  for (const r of RODS) assert.ok(Math.abs(RARITIES.reduce((n, q) => n + r.odds[q], 0) - 100) < 1e-9, `${r.id} odds add up to 100`);
+  for (const q of RARITIES) assert.ok(FISH.some((f) => f.rarity === q), `a ${q} fish`);
+  // a day at the pond with the best rod is worth a few draws, not a fortune
+  assert.ok(CASTS_PER_DAY * ev(RODS[RODS.length - 1]) < 6 * TOKENS_PER_DRAW);
+  // an old farm file gets a rod and an empty creel
+  const old = normalizeFarm({ v: 1, startDate: '2026-01-01', days: {}, rod: 'laser' } as never, '2026-01-01');
+  assert.equal(old.rod, 'bamboo');
+  assert.deepEqual(old.fish, []);
+  assert.deepEqual(old.income, { crops: 0, fish: 0, ads: 0 });
+});
+
+test('farm: an ad watched to the end pays tokens, a few times a day', () => {
+  const s = newFarm('2026-01-01');
+  const t0 = new Date(2026, 0, 2, 9).getTime();
+  const a = startAd(s, t0, () => 0);
+  assert.equal(a.seconds, AD_SECONDS);
+  assert.ok(HOUSE_ADS.some((x) => x.id === a.ad));
+  assert.throws(() => claimAd(s, a.id, t0 + 5000), /to the end/);
+  assert.throws(() => claimAd(s, 'other', t0 + AD_SECONDS * 1000), /no ad/);
+  assert.equal(claimAd(s, a.id, t0 + AD_SECONDS * 1000), AD_REWARD);
+  assert.throws(() => claimAd(s, a.id, t0 + AD_SECONDS * 1000), /no ad/, 'paid once');
+  for (let i = 1; i < ADS_PER_DAY; i++) {
+    const x = startAd(s, t0);
+    claimAd(s, x.id, t0 + AD_SECONDS * 1000);
+  }
+  assert.equal(farmView(s, t0).adsLeft, 0);
+  assert.equal(farmView(s, t0).incomeTokens, ADS_PER_DAY * AD_REWARD);
+  assert.throws(() => startAd(s, t0), /all the ads for today/);
+  assert.equal(farmView(s, t0 + 86400_000).adsLeft, ADS_PER_DAY);
+  startAd(s, t0 + 86400_000);
 });

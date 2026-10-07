@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ProviderSnapshot } from '../shared/types';
-import { FarmError, creditUsage, waterField, discardCrop, displayCrop, storeCrop, draw, farmView, harvest, normalizeFarm, plant, uproot, type FarmState, type FarmView } from '../shared/farm';
+import { FarmError, buyBait, cast, claimAd, reel, sellCrop, sellFish, startAd, takeRod, creditUsage, waterField, discardCrop, displayCrop, storeCrop, draw, farmView, harvest, normalizeFarm, plant, uproot, type FarmState, type FarmView } from '../shared/farm';
 import { dataDir } from './config';
 import { localDate } from './jsonl';
 
@@ -51,7 +51,7 @@ export class FarmStore {
     return n;
   }
 
-  /** draw | plant | harvest | uproot | store | display | discard */
+  /** draw | plant | harvest | uproot | store | display | discard | sell | sell-fish | rod | bait | cast | reel | ad | ad-claim */
   act(action: string, body: any, providers: ProviderSnapshot[] = []): { farm: FarmView; result?: unknown } {
     const s = this.load();
     creditUsage(s, farmDaily(providers));
@@ -77,6 +77,30 @@ export class FarmStore {
         break;
       case 'discard':
         discardCrop(s, String(body?.cropId ?? ''));
+        break;
+      case 'sell':
+        result = sellCrop(s, String(body?.cropId ?? ''));
+        break;
+      case 'sell-fish':
+        result = sellFish(s, Array.isArray(body?.ids) ? body.ids.map(String) : undefined);
+        break;
+      case 'rod':
+        takeRod(s, String(body?.rod ?? ''));
+        break;
+      case 'bait':
+        buyBait(s, Number(body?.packs) || 1);
+        break;
+      case 'cast':
+        result = cast(s);
+        break;
+      case 'reel':
+        result = reel(s, String(body?.castId ?? ''));
+        break;
+      case 'ad':
+        result = startAd(s);
+        break;
+      case 'ad-claim':
+        result = claimAd(s, String(body?.id ?? ''));
         break;
       default:
         throw new FarmError('unknown farm action');

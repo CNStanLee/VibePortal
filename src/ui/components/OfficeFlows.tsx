@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { deliveryOf, layoutTree, rootsOf, stageOf, type Box, type OfficeDelivery, type OfficeNode, type OfficeRole, type OfficeRunNode } from '../../shared/office';
+import { deliveryOf, layoutTree, rootsOf, specOf, stageOf, type Deliverables, type Box, type OfficeDelivery, type OfficeNode, type OfficeRole, type OfficeRunNode } from '../../shared/office';
 import { fmt, useT, type Dict } from '../i18n';
 import { ClaudeMark, CodexMark } from './Brand';
 
@@ -27,7 +27,7 @@ const YOU_H = 40;
 const AW = 236;
 const AGX = 28;
 const AGY = 56;
-const acceptH = (n: OfficeNode) => 88 + 21 * Math.max(1, n.criteria?.length ?? 0);
+const acceptH = (team: Deliverables) => (n: OfficeNode) => 88 + 21 * Math.max(1, specOf(team, n).criteria.length);
 
 const curve = (x1: number, y1: number, x2: number, y2: number) => {
   const my = (y1 + y2) / 2;
@@ -39,14 +39,14 @@ const curve = (x1: number, y1: number, x2: number, y2: number) => {
  * in what order) and an acceptance diagram (the criteria each delivery is judged by,
  * ticked off by the desk and accepted or rejected by its supervisor during a run).
  */
-export function OfficeFlows({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]; progress: Record<string, OfficeRunNode>; selected: string | null; onPick: (id: string) => void }) {
+export function OfficeFlows({ team, nodes, progress, selected, onPick }: { team: Deliverables; nodes: OfficeNode[]; progress: Record<string, OfficeRunNode>; selected: string | null; onPick: (id: string) => void }) {
   const { t } = useT();
   const [mode, setMode] = useState<'handoff' | 'accept'>(() => (localStorage.getItem(FLOW_KEY) === 'accept' ? 'accept' : 'handoff'));
   const pick = (m: typeof mode) => {
     setMode(m);
     localStorage.setItem(FLOW_KEY, m);
   };
-  const designed = nodes.some((n) => n.deliverable || n.criteria?.length);
+  const designed = nodes.some((n) => specOf(team, n).deliverable || specOf(team, n).criteria.length);
   return (
     <section className="card office-flows" aria-labelledby="h-flows">
       <div className="office-flows-head">
@@ -64,7 +64,7 @@ export function OfficeFlows({ nodes, progress, selected, onPick }: { nodes: Offi
       {!nodes.length ? null : (
         <>
           {!designed && <p className="office-flows-empty small">{t.officeFlowEmpty}</p>}
-          {mode === 'handoff' ? <Handoffs nodes={nodes} progress={progress} selected={selected} onPick={onPick} /> : <Acceptance nodes={nodes} progress={progress} selected={selected} onPick={onPick} />}
+          {mode === 'handoff' ? <Handoffs team={team} nodes={nodes} progress={progress} selected={selected} onPick={onPick} /> : <Acceptance team={team} nodes={nodes} progress={progress} selected={selected} onPick={onPick} />}
           <div className="office-flows-legend tiny">
             {(['waiting', 'making', 'delivered', 'accepted', 'rejected'] as OfficeDelivery[]).map((d) => (
               <span key={d} className={`dlv dlv-${d}`}>
@@ -102,7 +102,7 @@ function Who({ node }: { node: OfficeNode }) {
 }
 
 /** Who hands what to whom: the bottom delivers first, the lead delivers to you. */
-function Handoffs({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]; progress: Record<string, OfficeRunNode>; selected: string | null; onPick: (id: string) => void }) {
+function Handoffs({ team, nodes, progress, selected, onPick }: { team: Deliverables; nodes: OfficeNode[]; progress: Record<string, OfficeRunNode>; selected: string | null; onPick: (id: string) => void }) {
   const { t } = useT();
   const top = 24 + YOU_H + HGY;
   const pos = layoutTree(nodes, { w: HW, h: () => HH, gapX: HGX, gapY: HGY, pad: 24 });
@@ -139,10 +139,11 @@ function Handoffs({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]; 
         </div>
         {lines.map(({ n, b, boss, dlv }) => {
           const p = progress[n.id];
+          const sp = specOf(team, n);
           const title = [
             `${n.name} → ${boss?.name ?? t.officeToYou}`,
-            n.deliverable ? `📦 ${n.deliverable}` : t.officeNoDeliverable,
-            ...(n.criteria ?? []).map((c) => `• ${c}`),
+            sp.deliverable ? `📦 ${sp.deliverable}` : t.officeNoDeliverable,
+            ...sp.criteria.map((c) => `• ${c}`),
             p?.acceptNote ? `“${p.acceptNote}”` : '',
           ]
             .filter(Boolean)
@@ -152,7 +153,7 @@ function Handoffs({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]; 
               <span className="flow-stage" title={fmt(t.officeStage, { n: stageOf(nodes, n.id) })}>
                 {stageOf(nodes, n.id)}
               </span>
-              <span className={`flow-deliv ${n.deliverable ? '' : 'muted'}`}>{n.deliverable || t.officeNoDeliverable}</span>
+              <span className={`flow-deliv ${sp.deliverable ? '' : 'muted'}`}>{sp.deliverable || t.officeNoDeliverable}</span>
               {dlv !== 'none' && (
                 <span className="flow-dlv" aria-label={t[DELIVERY_KEY[dlv]]}>
                   {DELIVERY_ICON[dlv]}
@@ -179,9 +180,9 @@ function Handoffs({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]; 
 }
 
 /** Every delivery with the criteria it is judged by, and whether it passed. */
-function Acceptance({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]; progress: Record<string, OfficeRunNode>; selected: string | null; onPick: (id: string) => void }) {
+function Acceptance({ team, nodes, progress, selected, onPick }: { team: Deliverables; nodes: OfficeNode[]; progress: Record<string, OfficeRunNode>; selected: string | null; onPick: (id: string) => void }) {
   const { t } = useT();
-  const pos = layoutTree(nodes, { w: AW, h: acceptH, gapX: AGX, gapY: AGY, pad: 16 });
+  const pos = layoutTree(nodes, { w: AW, h: acceptH(team), gapX: AGX, gapY: AGY, pad: 16 });
   const boxes = [...pos.values()];
   const W = Math.max(...boxes.map((b) => b.x + b.w)) + 16;
   const H = Math.max(...boxes.map((b) => b.y + b.h)) + 16;
@@ -192,7 +193,7 @@ function Acceptance({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]
   let judged = 0;
   for (const n of nodes) {
     const p = progress[n.id];
-    total += n.criteria?.length ?? 0;
+    total += specOf(team, n).criteria.length;
     met += p?.checks?.filter((c) => c === 'met').length ?? 0;
     if (n.parent && byId.has(n.parent)) {
       judged++;
@@ -227,7 +228,8 @@ function Acceptance({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]
             const p = progress[n.id];
             const dlv = deliveryOf(p);
             const boss = n.parent ? byId.get(n.parent) : undefined;
-            const crit = n.criteria ?? [];
+            const sp = specOf(team, n);
+            const crit = sp.criteria;
             const gate = !boss
               ? t.officeYourCall
               : p?.accepted === true
@@ -243,8 +245,8 @@ function Acceptance({ nodes, progress, selected, onPick }: { nodes: OfficeNode[]
                   </span>
                   {dlv !== 'none' && <span className={`accept-state dlv dlv-${dlv}`}>{t[DELIVERY_KEY[dlv]]}</span>}
                 </span>
-                <span className={`accept-deliv ${n.deliverable ? '' : 'muted'}`} title={n.deliverable}>
-                  📦 {n.deliverable || t.officeNoDeliverable}
+                <span className={`accept-deliv ${sp.deliverable ? '' : 'muted'}`} title={sp.deliverable}>
+                  📦 {sp.deliverable || t.officeNoDeliverable}
                 </span>
                 <span className="accept-crit">
                   {crit.length ? (

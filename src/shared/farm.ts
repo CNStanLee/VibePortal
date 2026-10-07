@@ -1,8 +1,13 @@
 /*
- * The crab farm: tokens you burn earn seed draws; seeds grow into plants that
- * are only there to look at. Pure state functions, shared by the server (which
+ * The crab farm: tokens you burn earn seed draws; seeds grow into plants. Plants
+ * (and the fish from the pond) can be sold, and watching an ad pays too: what
+ * they bring in is added to the token balance that buys seeds and fishing gear.
+ * Pure state functions, shared by the server (which
  * keeps the farm in ~/.vibeportal/farm.json) and the UI's demo mode.
  */
+
+import { BAIT_PACK, BAIT_PRICE, CASTS_PER_DAY, FREE_BAIT_PER_DAY, MAX_FISH, REEL_GRACE_MS, RODS, fishPrice, rodOf, rollFish, type Fish, type PondState, type RodId } from './farmPond';
+import { AD_REWARD, AD_SECONDS, ADS_PER_DAY, HOUSE_ADS, type AdState } from './farmAds';
 
 export type Rarity = 'common' | 'fine' | 'rare' | 'epic' | 'legendary' | 'mythic';
 export const RARITIES: Rarity[] = ['common', 'fine', 'rare', 'epic', 'legendary', 'mythic'];
@@ -100,6 +105,13 @@ export interface Crop {
   harvestedAt: number;
 }
 
+/** what the farm brought in besides your own tokens (all in tokens) */
+export interface FarmIncome {
+  crops: number;
+  fish: number;
+  ads: number;
+}
+
 export interface FarmState {
   v: 1;
   /** first day whose tokens count (local YYYY-MM-DD) */
@@ -116,10 +128,27 @@ export interface FarmState {
   crops: Crop[];
   /** plants taken off the showcase, kept in the storehouse */
   stored: Crop[];
+  income: FarmIncome;
+  /** the catch, waiting to be sold */
+  fish: Fish[];
+  /** how many of each fish were ever caught (the fish dex) */
+  caught: Record<string, number>;
+  /** fishing rods owned, and the one in hand */
+  rods: RodId[];
+  rod: RodId;
+  bait: number;
+  pond: PondState;
+  ads: AdState;
 }
 
 export interface FarmView extends FarmState {
   earnedTokens: number;
+  /** what selling and ads brought in */
+  incomeTokens: number;
+  /** today's free bait left, casts left, ads left */
+  freeBaitLeft: number;
+  castsLeft: number;
+  adsLeft: number;
   /** tokens left to spend (welcome draws included) */
   balance: number;
   tokensPerDraw: number;
@@ -132,7 +161,26 @@ export class FarmError extends Error {
 }
 
 export function newFarm(today: string): FarmState {
-  return { v: 1, startDate: today, days: {}, spentTokens: 0, draws: 0, pity: 0, seeds: [], plots: emptyPlots(), crops: [], stored: [] };
+  return {
+    v: 1,
+    startDate: today,
+    days: {},
+    spentTokens: 0,
+    draws: 0,
+    pity: 0,
+    seeds: [],
+    plots: emptyPlots(),
+    crops: [],
+    stored: [],
+    income: { crops: 0, fish: 0, ads: 0 },
+    fish: [],
+    caught: {},
+    rods: ['bamboo'],
+    rod: 'bamboo',
+    bait: 0,
+    pond: { day: '', casts: 0, free: 0 },
+    ads: { day: '', watched: 0 },
+  };
 }
 
 const emptyPlots = (): Plot[] => Array.from({ length: PLOTS }, () => ({}));
@@ -151,6 +199,14 @@ export function normalizeFarm(s: Partial<FarmState> | null | undefined, today: s
     seeds: Array.isArray(s.seeds) ? s.seeds : [],
     crops: Array.isArray(s.crops) ? s.crops : [],
     stored: Array.isArray(s.stored) ? s.stored : [],
+    income: { ...base.income, ...(s.income && typeof s.income === 'object' ? s.income : {}) },
+    fish: Array.isArray(s.fish) ? s.fish : [],
+    caught: s.caught && typeof s.caught === 'object' ? s.caught : {},
+    rods: Array.isArray(s.rods) && s.rods.length ? s.rods.filter((r) => RODS.some((x) => x.id === r)) : ['bamboo'],
+    rod: RODS.some((x) => x.id === s.rod) && s.rods?.includes(s.rod!) ? s.rod! : 'bamboo',
+    bait: Number.isFinite(s.bait) ? Math.max(0, s.bait!) : 0,
+    pond: s.pond && typeof s.pond === 'object' ? s.pond : base.pond,
+    ads: s.ads && typeof s.ads === 'object' ? s.ads : base.ads,
     plots,
   };
 }
@@ -165,8 +221,35 @@ export function creditUsage(s: FarmState, daily: { date: string; tokens: number 
 
 export function farmView(s: FarmState, now = Date.now()): FarmView {
   const earnedTokens = Object.values(s.days).reduce((a, b) => a + b, 0);
-  const balance = earnedTokens + WELCOME_DRAWS * TOKENS_PER_DRAW - s.spentTokens;
-  return { ...s, earnedTokens, balance, tokensPerDraw: TOKENS_PER_DRAW, drawsAvailable: Math.max(0, Math.floor(balance / TOKENS_PER_DRAW)), now };
+  const incomeTokens = s.income.crops + s.income.fish + s.income.ads;
+  const balance = earnedTokens + incomeTokens + WELCOME_DRAWS * TOKENS_PER_DRAW - s.spentTokens;
+  const today = dayOf(now);
+  const pond = s.pond.day === today ? s.pond : { casts: 0, free: 0 };
+  const ads = s.ads.day === today ? s.ads.watched : 0;
+  return {
+    ...s,
+    earnedTokens,
+    incomeTokens,
+    balance,
+    tokensPerDraw: TOKENS_PER_DRAW,
+    drawsAvailable: Math.max(0, Math.floor(balance / TOKENS_PER_DRAW)),
+    freeBaitLeft: Math.max(0, FREE_BAIT_PER_DAY - pond.free),
+    castsLeft: Math.max(0, CASTS_PER_DAY - pond.casts),
+    adsLeft: Math.max(0, ADS_PER_DAY - ads),
+    now,
+  };
+}
+
+/** Local calendar day (YYYY-MM-DD): daily allowances start over at midnight. */
+export function dayOf(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Spends tokens from the balance (seed draws, fishing gear). */
+function pay(s: FarmState, tokens: number, what: string) {
+  if (farmView(s).balance < tokens) throw new FarmError(`not enough tokens for ${what} yet`);
+  s.spentTokens += tokens;
 }
 
 const uid = (rnd: () => number) => Date.now().toString(36) + Math.floor(rnd() * 1e9).toString(36);
@@ -304,4 +387,115 @@ export function stageOf(p: Plot, now: number): 0 | 1 | 2 | 3 {
   if (!p.plantedAt || !p.readyAt) return 0;
   const f = (now - p.plantedAt) / (p.readyAt - p.plantedAt);
   return f >= 1 ? 3 : f >= 0.55 ? 2 : f >= 0.15 ? 1 : 0;
+}
+
+// ── the market: plants sell by quality and colour ──────────────────────────
+/** tokens a plant sells for, by quality (a draw is 500k: on average a seed earns back about 40%) */
+export const CROP_PRICE: Record<Rarity, number> = { common: 60_000, fine: 120_000, rare: 300_000, epic: 900_000, legendary: 2_500_000, mythic: 10_000_000 };
+const COLOR_BONUS: Partial<Record<SeedColor, number>> = { black: 1.2, gold: 1.5, rainbow: 2 };
+
+export function cropPrice(c: Pick<Crop, 'rarity' | 'color' | 'mutated'>): number {
+  return Math.round((CROP_PRICE[c.rarity] * (COLOR_BONUS[c.color] ?? 1) * (c.mutated ? 1.2 : 1)) / 1000) * 1000;
+}
+
+/** Sells a plant (from the showcase or the storehouse); what it brought in. */
+export function sellCrop(s: FarmState, cropId: string): number {
+  const c = allCrops(s).find((x) => x.id === cropId);
+  if (!c) throw new FarmError('no such plant');
+  discardCrop(s, cropId);
+  const price = cropPrice(c);
+  s.income.crops += price;
+  return price;
+}
+
+// ── the pond: cast, wait for the bite, reel in ─────────────────────────────
+/** Today's allowances (they start over at local midnight). */
+function pondToday(s: FarmState, now: number): PondState {
+  const day = dayOf(now);
+  if (s.pond.day !== day) s.pond = { day, casts: 0, free: 0 };
+  return s.pond;
+}
+
+/** Casts the line: takes a bait (today's free ones first). When the fish bites, in ms, and how long you have. */
+export function cast(s: FarmState, now = Date.now(), rnd: () => number = Math.random): { id: string; biteIn: number; window: number } {
+  const pond = pondToday(s, now);
+  if (pond.casts >= CASTS_PER_DAY) throw new FarmError('the fish are done for today — come back tomorrow');
+  if (s.fish.length >= MAX_FISH) throw new FarmError('the creel is full — sell some fish first');
+  if (pond.free < FREE_BAIT_PER_DAY) pond.free++;
+  else if (s.bait > 0) s.bait--;
+  else throw new FarmError('no bait left — buy some in the shop');
+  pond.casts++;
+  const rod = rodOf(s.rod);
+  const biteIn = Math.round((rod.bite[0] + (rod.bite[1] - rod.bite[0]) * rnd()) * 1000);
+  const id = uid(rnd);
+  // a line left in the water is pulled out: its bait is gone
+  pond.cast = { id, biteAt: now + biteIn, until: now + biteIn + rod.window * 1000 };
+  return { id, biteIn, window: rod.window * 1000 };
+}
+
+/** Reels in: in time, a fish; too early or too late, it got away (the bait is gone either way). */
+export function reel(s: FarmState, castId: string, now = Date.now(), rnd: () => number = Math.random): { result: 'caught'; fish: Fish } | { result: 'early' | 'late' } {
+  const c = s.pond.cast;
+  if (!c || c.id !== castId) throw new FarmError('no line in the water');
+  s.pond.cast = undefined;
+  if (now < c.biteAt - REEL_GRACE_MS.early) return { result: 'early' };
+  if (now > c.until + REEL_GRACE_MS.late) return { result: 'late' };
+  const fish = rollFish(rodOf(s.rod), rnd, uid(rnd), now);
+  s.fish.push(fish);
+  s.caught[fish.species] = (s.caught[fish.species] ?? 0) + 1;
+  return { result: 'caught', fish };
+}
+
+/** Sells fish from the creel (all of them when no ids are given); what they brought in. */
+export function sellFish(s: FarmState, ids?: string[]): number {
+  const sell = ids ? s.fish.filter((f) => ids.includes(f.id)) : s.fish;
+  if (!sell.length) throw new FarmError('no such fish');
+  const price = sell.reduce((n, f) => n + fishPrice(f), 0);
+  const gone = new Set(sell.map((f) => f.id));
+  s.fish = s.fish.filter((f) => !gone.has(f.id));
+  s.income.fish += price;
+  return price;
+}
+
+/** Buys a rod (and takes it in hand), or just takes up one you own. */
+export function takeRod(s: FarmState, id: string) {
+  const rod = RODS.find((r) => r.id === id);
+  if (!rod) throw new FarmError('no such rod');
+  if (!s.rods.includes(rod.id)) {
+    pay(s, rod.price, 'that rod');
+    s.rods.push(rod.id);
+  }
+  s.rod = rod.id;
+}
+
+/** Buys bait, a pack at a time. */
+export function buyBait(s: FarmState, packs = 1) {
+  const n = Math.min(10, Math.max(1, Math.floor(packs) || 1));
+  pay(s, n * BAIT_PACK * BAIT_PRICE, 'bait');
+  s.bait += n * BAIT_PACK;
+}
+
+// ── ads: watch one to the end, get tokens ──────────────────────────────────
+/** Starts an ad (a few a day): which one, and how long it runs. */
+export function startAd(s: FarmState, now = Date.now(), rnd: () => number = Math.random): { id: string; ad: string; seconds: number } {
+  const day = dayOf(now);
+  if (s.ads.day !== day) s.ads = { day, watched: 0 };
+  if (s.ads.watched >= ADS_PER_DAY) throw new FarmError('that’s all the ads for today — come back tomorrow');
+  const ad = HOUSE_ADS[Math.min(HOUSE_ADS.length - 1, Math.floor(rnd() * HOUSE_ADS.length))].id;
+  s.ads.open = { id: uid(rnd), ad, startedAt: now };
+  return { id: s.ads.open.id, ad, seconds: AD_SECONDS };
+}
+
+/** The ad ran to the end: pays out. */
+export function claimAd(s: FarmState, id: string, now = Date.now()): number {
+  const open = s.ads.open;
+  if (!open || open.id !== id) throw new FarmError('no ad playing');
+  // a second's grace for the clocks
+  if (now - open.startedAt < AD_SECONDS * 1000 - 1000) throw new FarmError('watch the ad to the end first');
+  if (s.ads.day !== dayOf(now)) s.ads = { day: dayOf(now), watched: 0 };
+  if (s.ads.watched >= ADS_PER_DAY) throw new FarmError('that’s all the ads for today — come back tomorrow');
+  s.ads.open = undefined;
+  s.ads.watched++;
+  s.income.ads += AD_REWARD;
+  return AD_REWARD;
 }

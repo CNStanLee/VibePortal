@@ -5,7 +5,10 @@ import {
   DESK_W,
   OFFICE_GRANTS,
   OFFICE_ROLES,
-  ROLE_GRANTS,
+  DEFAULT_GRANTS,
+  OFFICE_PRESETS,
+  applyPreset,
+  presetOf,
   autoLayout,
   cascadeGrants,
   chainOf,
@@ -14,6 +17,8 @@ import {
   fitToBudget,
   newOfficeId,
   normalizeView,
+  specOf,
+  undelivered,
   EFFORT_LADDER,
   assignModels,
   difficultyOf,
@@ -34,6 +39,7 @@ import {
   type OfficeNode,
   type OfficeReview,
   type OfficeNodeState,
+  type OfficePreset,
   type OfficeRole,
   type OfficeRun,
   type OfficeRunNode,
@@ -72,13 +78,8 @@ const GRANT_KEY: Record<OfficeGrant, keyof Dict> = { edit: 'grantEdit', run: 'gr
 const GRANT_ICON: Record<OfficeGrant, string> = { edit: '✏️', run: '▶️', git: '⎇', web: '🌐', tools: '🧩' };
 const REVIEW_KEY: Record<OfficeReview, keyof Dict> = { agent: 'reviewAgent', auto: 'reviewAuto', user: 'reviewUser' };
 const ASK_KEY: Record<OfficeAsk['state'], keyof Dict> = { reviewing: 'askReviewing', allowed: 'askAllowed', denied: 'askDenied', user: 'askUser' };
-/** team-wide permission presets: the top of the team gets the set, everyone else its role's share of it */
-const PRESETS: { key: keyof Dict; grants: OfficeGrant[] }[] = [
-  { key: 'presetRead', grants: [] },
-  { key: 'presetEdit', grants: ['edit'] },
-  { key: 'presetBuild', grants: ['edit', 'run'] },
-  { key: 'presetAll', grants: ['edit', 'run', 'git', 'web', 'tools'] },
-];
+/** team-wide permission presets: everyone the same set, or each its role's share */
+const PRESET_KEY: Record<OfficePreset, keyof Dict> = { all: 'presetAll', build: 'presetBuild', edit: 'presetEdit', read: 'presetRead', role: 'presetRole' };
 const STATE_KEY: Record<OfficeNodeState, keyof Dict> = { waiting: 'deskWaiting', running: 'deskRunning', done: 'deskDone', failed: 'deskFailed', skipped: 'deskSkipped' };
 const RUN_KEY: Record<OfficeRun['state'], keyof Dict> = { running: 'officeRunRunning', done: 'officeRunDone', failed: 'officeRunFailed', stopped: 'officeRunStopped', 'over-budget': 'officeRunOver' };
 const VERB_ICON: Partial<Record<ActivityVerb, string>> = { read: '📖', edit: '⌨', write: '⌨', run: '▶', search: '🔍', web: '🌐', agent: '🤝', ask: '❓', wait: '⏳' };
@@ -256,7 +257,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
       (p
         ? { x: p.x + childrenOf(nodes, p.id).length * (DESK_W + 24), y: p.y + DESK_H + 70 }
         : { x: 24 + nodes.filter((n) => !n.parent).length * (DESK_W + 28), y: 24 });
-    const n: OfficeNode = { id: newOfficeId('n'), name: t[ROLE_KEY[role]], role, agent: 'claude', ...ROLE_DEFAULTS[role], grants: ROLE_GRANTS[role], task: '', ...(parent ? { parent } : {}), x: Math.max(8, Math.round(spot.x)), y: Math.max(8, Math.round(spot.y)) };
+    const n: OfficeNode = { id: newOfficeId('n'), name: t[ROLE_KEY[role]], role, agent: 'claude', ...ROLE_DEFAULTS[role], grants: [...DEFAULT_GRANTS], task: '', ...(parent ? { parent } : {}), x: Math.max(8, Math.round(spot.x)), y: Math.max(8, Math.round(spot.y)) };
     update((x) => ({ ...x, nodes: [...x.nodes, n] }));
     setSelected(n.id);
   };
@@ -329,7 +330,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
         const p = toPlane(ev);
         if (!up) return addNode('engineer', { x: p.x - DESK_W / 2, y: p.y - 20 }, from);
         const child = byId.get(from);
-        const mgr: OfficeNode = { id: newOfficeId('n'), name: t.roleManager, role: 'manager', agent: 'claude', ...ROLE_DEFAULTS.manager, grants: ROLE_GRANTS.manager, task: '', ...(child?.parent ? { parent: child.parent } : {}), x: Math.max(8, Math.round(p.x - DESK_W / 2)), y: Math.max(8, Math.round(p.y - DESK_H + 20)) };
+        const mgr: OfficeNode = { id: newOfficeId('n'), name: t.roleManager, role: 'manager', agent: 'claude', ...ROLE_DEFAULTS.manager, grants: [...DEFAULT_GRANTS], task: '', ...(child?.parent ? { parent: child.parent } : {}), x: Math.max(8, Math.round(p.x - DESK_W / 2)), y: Math.max(8, Math.round(p.y - DESK_H + 20)) };
         update((x) => ({ ...x, nodes: [...x.nodes.map((n) => (n.id === from ? { ...n, parent: mgr.id } : n)), mgr] }));
         setSelected(mgr.id);
       },
@@ -366,7 +367,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     setBusy('plan');
     setError('');
     try {
-      const next = await api.officePlan({ id: team.id, goal: team.goal, budget: team.budget, lang, cwd: team.cwd, model: planner.model, ...(planner.effort ? { effort: planner.effort } : {}) });
+      const next = await api.officePlan({ id: team.id, goal: team.goal, deliverable: team.deliverable, criteria: team.criteria, budget: team.budget, lang, cwd: team.cwd, model: planner.model, ...(planner.effort ? { effort: planner.effort } : {}) });
       teamRef.current = next;
       setView((v) => ({ runs: v?.runs ?? [], teams: [...(v?.teams ?? []).filter((x) => x.id !== next.id), next] }));
       setDraft(null);
@@ -450,7 +451,14 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   const overBudget = est.cost > team.budget;
   const spent = showRun ? run!.spent : 0;
   const scale = Math.max(team.budget, est.cost, spent) * 1.08 || 1;
-  const why = !nodes.length ? t.officeNeedNodes : !team.cwd ? t.officeNeedFolder : !(opts?.agents.claude.available ?? true) && nodes.some((n) => n.agent === 'claude') ? `Claude Code ${t.cliMissing}` : !(opts?.agents.codex.available ?? true) && nodes.some((n) => n.agent === 'codex') ? `Codex ${t.cliMissing}` : '';
+  const missing = undelivered(team);
+  const why = !nodes.length
+    ? t.officeNeedNodes
+    : missing.length
+      ? fmt(t.officeNeedDeliverables, { names: missing.map((n) => n.name).join(lang === 'zh' ? '、' : ', ') })
+      : !team.cwd
+        ? t.officeNeedFolder
+        : !(opts?.agents.claude.available ?? true) && nodes.some((n) => n.agent === 'claude') ? `Claude Code ${t.cliMissing}` : !(opts?.agents.codex.available ?? true) && nodes.some((n) => n.agent === 'codex') ? `Codex ${t.cliMissing}` : '';
   const teamList = teams.some((x) => x.id === team.id) ? teams : [...teams, team];
 
   return (
@@ -499,6 +507,18 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void plan();
               }}
             />
+            {/* the final deliverable and when it counts as done: settled before the team is */}
+            <div className="office-final">
+              <label>
+                <span className="nt-label">📦 {t.officeFinal}</span>
+                <input value={team.deliverable ?? ''} disabled={locked} placeholder={t.officeFinalPh} onChange={(e) => update((x) => ({ ...x, deliverable: e.target.value || undefined }))} />
+              </label>
+              <label>
+                <span className="nt-label">✅ {t.officeDone}</span>
+                <CriteriaInput value={team.criteria ?? []} disabled={locked} placeholder={t.officeDonePh} onChange={(c) => update((x) => ({ ...x, criteria: c.length ? c : undefined }))} />
+              </label>
+              <p className="muted tiny">{t.officeFinalHelp}</p>
+            </div>
             <div className="office-goal-foot">
               <button className="btn" onClick={() => void plan()} disabled={locked || !!busy || !team.goal.trim()} title="Ctrl+Enter">
                 {busy === 'plan' ? (
@@ -573,19 +593,20 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
             <label>
               <span className="nt-label">{t.officePerms}</span>
               <select
-                value=""
+                value={presetOf(nodes) ?? ''}
                 disabled={locked || !nodes.length}
                 title={t.officePermsHelp}
                 onChange={(e) => {
-                  const pre = PRESETS[Number(e.target.value)];
-                  if (!pre) return;
-                  update((x) => ({ ...x, nodes: x.nodes.map((n) => ({ ...n, grants: !n.parent || !byId.has(n.parent) ? pre.grants : ROLE_GRANTS[n.role].filter((g) => pre.grants.includes(g)) })) }));
+                  const pre = e.target.value as OfficePreset;
+                  if (OFFICE_PRESETS.includes(pre)) update((x) => ({ ...x, nodes: applyPreset(x.nodes, pre) }));
                 }}
               >
-                <option value="">{t.officePreset}</option>
-                {PRESETS.map((p, i) => (
-                  <option key={p.key} value={i}>
-                    {t[p.key]}
+                <option value="" disabled>
+                  {nodes.length ? t.presetCustom : t.officePreset}
+                </option>
+                {OFFICE_PRESETS.map((p) => (
+                  <option key={p} value={p}>
+                    {t[PRESET_KEY[p]]}
                   </option>
                 ))}
               </select>
@@ -682,6 +703,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
             <span className="muted tiny">{t.officeAssignHelp}</span>
           </span>
         </div>
+        {!locked && nodes.length > 0 && missing.length > 0 && <p className="office-missing small">📦 {why}</p>}
         {overBudget && !locked && (
           <div className="office-over small">
             <span>{fmt(t.officeOver, { n: fmtUsd(est.cost - team.budget) })}</span>
@@ -862,6 +884,8 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
             <NodeEditor
               node={sel}
               nodes={nodes}
+              team={team}
+              onFinal={(f) => update((x) => ({ ...x, ...f, nodes: x.nodes.map((n) => (n.id === sel.id ? { ...n, deliverable: undefined, criteria: undefined } : n)) }))}
               opts={opts}
               est={est.byNode[sel.id]}
               prog={progress[sel.id]}
@@ -880,6 +904,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
       </div>
 
       <OfficeFlows
+        team={team}
         nodes={nodes}
         progress={progress}
         selected={selected}
@@ -1005,7 +1030,8 @@ function Desk({
         <span aria-hidden>{ROLE_ICON[node.role]}</span> {node.name}
       </div>
       <div className="desk-grants" aria-label={t.officePerms}>
-        {OFFICE_GRANTS.filter((g) => (prog?.grants ?? node.grants).includes(g)).map((g) => (
+        {/* during a run: what it holds now (handed-down ones marked); otherwise what it is set to */}
+        {OFFICE_GRANTS.filter((g) => (locked && prog?.grants ? prog.grants : node.grants).includes(g)).map((g) => (
           <span key={g} className={node.grants.includes(g) ? '' : 'new'} title={`${t[GRANT_KEY[g]]}${node.grants.includes(g) ? '' : ` · ${t.officeHandedDown}`}`}>
             {GRANT_ICON[g]}
           </span>
@@ -1038,6 +1064,8 @@ function Desk({
 function NodeEditor({
   node,
   nodes,
+  team,
+  onFinal,
   opts,
   est,
   prog,
@@ -1051,6 +1079,9 @@ function NodeEditor({
 }: {
   node: OfficeNode;
   nodes: OfficeNode[];
+  /** the team's final deliverable (the top desk's) */
+  team: { nodes: OfficeNode[]; deliverable?: string; criteria?: string[] };
+  onFinal: (p: { deliverable?: string; criteria?: string[] }) => void;
   opts: LaunchOptions | null;
   est?: { tokens: number; cost: number };
   prog?: OfficeRunNode;
@@ -1066,6 +1097,10 @@ function NodeEditor({
   const info = opts?.agents[node.agent];
   const models = [...new Set([...(node.model ? [node.model] : []), ...(info?.models ?? (node.agent === 'claude' ? ['fable', 'opus', 'sonnet', 'haiku'] : []))])];
   const bosses = nodes.filter((n) => n.id !== node.id && !wouldCycle(nodes, node.id, n.id));
+  const boss = nodes.find((n) => n.id === node.parent);
+  // the top of the team delivers the team's final deliverable
+  const top = !boss;
+  const spec = specOf(team, node);
   return (
     <div className="office-editor">
       <div className="nt-head">
@@ -1092,6 +1127,37 @@ function NodeEditor({
               ))}
             </select>
           </label>
+        </div>
+        {/* what it delivers comes first: the rest is how it gets there */}
+        <div className="office-deliver">
+          <label>
+            <span className="nt-label">
+              📦 {t.officeDeliverable} → {boss?.name ?? t.officeYou}
+              {top && <span className="muted tiny"> · {t.officeIsFinal}</span>}
+            </span>
+            <input
+              value={spec.deliverable ?? ''}
+              placeholder={t.officeDeliverablePh}
+              onChange={(e) => (top ? onFinal({ deliverable: e.target.value || undefined }) : onChange({ deliverable: e.target.value || undefined }))}
+            />
+          </label>
+          <label>
+            <span className="nt-label">✅ {t.officeCriteria}</span>
+            <CriteriaInput value={spec.criteria} onChange={(criteria) => (top ? onFinal({ criteria: criteria.length ? criteria : undefined }) : onChange({ criteria: criteria.length ? criteria : undefined }))} />
+          </label>
+          {boss && specOf(team, boss).deliverable && <p className="muted tiny">{fmt(t.officeGoesInto, { name: boss.name, d: specOf(team, boss).deliverable! })}</p>}
+          {nodes.some((n) => n.parent === node.id) && (
+            <div>
+              <span className="nt-label">{t.officeReceives}</span>
+              <ul className="office-receives tiny">
+                {childrenOf(nodes, node.id).map((k) => (
+                  <li key={k.id}>
+                    {ROLE_ICON[k.role]} <b>{k.name}</b>: <span className={k.deliverable ? '' : 'muted'}>{k.deliverable || t.officeNoDeliverable}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         <span className="nt-label">{t.agent}</span>
         <div className="nt-agents" role="radiogroup" aria-label={t.agent}>
@@ -1191,31 +1257,9 @@ function NodeEditor({
           </label>
         )}
         <label>
-          <span className="nt-label">{t.officeTask}</span>
+          <span className="nt-label">{t.officeTaskHow}</span>
           <textarea rows={5} value={node.task} placeholder={t.officeTaskPh} onChange={(e) => onChange({ task: e.target.value })} />
         </label>
-        <label>
-          <span className="nt-label">
-            📦 {t.officeDeliverable} → {nodes.find((n) => n.id === node.parent)?.name ?? t.officeYou}
-          </span>
-          <input value={node.deliverable ?? ''} placeholder={t.officeDeliverablePh} onChange={(e) => onChange({ deliverable: e.target.value || undefined })} />
-        </label>
-        <label>
-          <span className="nt-label">✅ {t.officeCriteria}</span>
-          <CriteriaInput value={node.criteria ?? []} onChange={(criteria) => onChange({ criteria: criteria.length ? criteria : undefined })} />
-        </label>
-        {nodes.some((n) => n.parent === node.id) && (
-          <div>
-            <span className="nt-label">{t.officeReceives}</span>
-            <ul className="office-receives tiny">
-              {childrenOf(nodes, node.id).map((k) => (
-                <li key={k.id}>
-                  {ROLE_ICON[k.role]} <b>{k.name}</b>: <span className={k.deliverable ? '' : 'muted'}>{k.deliverable || t.officeNoDeliverable}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </fieldset>
       <div className="office-est small">
         {t.officeEstimate} <b>≈ {fmtUsd(est?.cost ?? 0)}</b> <span className="muted">· {fmt(t.officeTokens, { n: fmtTokens(est?.tokens ?? 0) })}</span>
@@ -1277,7 +1321,7 @@ function NodeEditor({
 }
 
 /** Success criteria, one per line (kept as typed while editing, so blank lines can be added). */
-function CriteriaInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+function CriteriaInput({ value, onChange, disabled, placeholder }: { value: string[]; onChange: (v: string[]) => void; disabled?: boolean; placeholder?: string }) {
   const { t } = useT();
   const [text, setText] = useState(value.join('\n'));
   const joined = value.join('\n');
@@ -1289,7 +1333,8 @@ function CriteriaInput({ value, onChange }: { value: string[]; onChange: (v: str
     <textarea
       rows={3}
       value={text}
-      placeholder={t.officeCriteriaPh}
+      disabled={disabled}
+      placeholder={placeholder ?? t.officeCriteriaPh}
       onChange={(e) => {
         setText(e.target.value);
         onChange(e.target.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 6));

@@ -1,7 +1,7 @@
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
-import { discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
-import { ROLE_GRANTS, autoLayout, cascadeGrants, childrenOf, costPerToken, estimateNode, newOfficeId, type OfficeNode, type OfficeRun, type OfficeTeam, type OfficeView } from '../shared/office';
+import { buyBait, cast, claimAd, reel, sellCrop, sellFish, startAd, takeRod, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
+import { DEFAULT_GRANTS, autoLayout, cascadeGrants, childrenOf, specOf, costPerToken, estimateNode, newOfficeId, type OfficeNode, type OfficeRun, type OfficeTeam, type OfficeView } from '../shared/office';
 import { cleanProfile, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm } from '../shared/farmSocial';
 import type {
   DailyUsage,
@@ -470,6 +470,14 @@ function demoFarmCall(p: string, body: unknown): unknown {
       { id: 'demo-crop-6', species: 'daisy', rarity: 'common', color: 'white', harvestedAt: now - 3 * 86400_000 },
     );
     f.seeds.push({ id: 'demo-seed-mythic', species: 'moonflower', rarity: 'mythic', color: 'white' });
+    // a morning at the pond
+    f.bait = 10;
+    f.fish.push(
+      { id: 'demo-fish-1', species: 'koi', rarity: 'rare', kg: 6.4, caughtAt: now - 3 * 3600_000 },
+      { id: 'demo-fish-2', species: 'carp', rarity: 'fine', kg: 2.1, caughtAt: now - 2 * 3600_000 },
+      { id: 'demo-fish-3', species: 'crucian', rarity: 'common', kg: 0.35, caughtAt: now - 3600_000 },
+    );
+    f.caught = { koi: 1, carp: 2, crucian: 4, minnow: 3 };
     demoFarm = f;
   }
   if (p === 'api/farm') return farmView(demoFarm);
@@ -493,6 +501,14 @@ function demoFarmCall(p: string, body: unknown): unknown {
   else if (action === 'store') storeCrop(s, String(b.cropId));
   else if (action === 'display') displayCrop(s, String(b.cropId));
   else if (action === 'discard') discardCrop(s, String(b.cropId));
+  else if (action === 'sell') result = sellCrop(s, String(b.cropId));
+  else if (action === 'sell-fish') result = sellFish(s, Array.isArray(b.ids) ? b.ids.map(String) : undefined);
+  else if (action === 'rod') takeRod(s, String(b.rod));
+  else if (action === 'bait') buyBait(s, Number(b.packs) || 1);
+  else if (action === 'cast') result = cast(s);
+  else if (action === 'reel') result = reel(s, String(b.castId));
+  else if (action === 'ad') result = startAd(s);
+  else if (action === 'ad-claim') result = claimAd(s, String(b.id));
   return { farm: farmView(s), result };
 }
 
@@ -608,7 +624,7 @@ function demoSkillGraph(): SkillGraph {
 const zhDemo = () => (localStorage.getItem('vp.lang') ?? navigator.language).startsWith('zh');
 function demoTeam(goal?: string, id = 'demo-team'): OfficeTeam {
   const zh = zhDemo();
-  const n = (key: string, name: string, role: OfficeNode['role'], agent: OfficeNode['agent'], model: string, effort: string, task: string, parent?: string): OfficeNode => ({ id: key, name, role, agent, ...(model ? { model } : {}), effort, task, ...(parent ? { parent } : {}), grants: ROLE_GRANTS[role], x: 0, y: 0 });
+  const n = (key: string, name: string, role: OfficeNode['role'], agent: OfficeNode['agent'], model: string, effort: string, task: string, parent?: string): OfficeNode => ({ id: key, name, role, agent, ...(model ? { model } : {}), effort, task, ...(parent ? { parent } : {}), grants: [...DEFAULT_GRANTS], x: 0, y: 0 });
   const nodes = [
     n('lead', zh ? '总负责人' : 'Lead', 'lead', 'claude', 'opus', 'high', zh ? '整合各组成果，检查整体是否达成目标，写最终说明。' : 'Bring the pieces together, check the goal is met, write the summary.'),
     n('ui', zh ? '界面组' : 'UI', 'manager', 'claude', 'sonnet', 'medium', zh ? '合并界面相关改动并复查。' : 'Merge and recheck the UI changes.', 'lead'),
@@ -637,8 +653,10 @@ function demoTeam(goal?: string, id = 'demo-team'): OfficeTeam {
         test: ['Theme toggle tests and their run', ['New tests cover toggle and persistence', 'npm test passes']],
         docs: ['README section + changelog entry', ['Says how to switch the theme']],
       };
-  for (const x of nodes) [x.deliverable, x.criteria] = handoffs[x.id] ?? [undefined, undefined];
-  return { id, name: zh ? '深色模式小组' : 'Dark mode squad', goal: goal ?? (zh ? '给设置页加上深色模式，附带测试和更新日志' : 'Add dark mode to the settings page, with tests and a changelog entry'), budget: 6, cwd: '/home/you/code/vibeportal', nodes: cascadeGrants(autoLayout(nodes)), updatedAt: new Date().toISOString() };
+  // the lead's is the team's final deliverable, settled first
+  for (const x of nodes) if (x.id !== 'lead') [x.deliverable, x.criteria] = handoffs[x.id] ?? [undefined, undefined];
+  const [deliverable, criteria] = handoffs.lead;
+  return { id, name: zh ? '深色模式小组' : 'Dark mode squad', goal: goal ?? (zh ? '给设置页加上深色模式，附带测试和更新日志' : 'Add dark mode to the settings page, with tests and a changelog entry'), deliverable, criteria, budget: 6, cwd: '/home/you/code/vibeportal', nodes: cascadeGrants(autoLayout(nodes)), updatedAt: new Date().toISOString() };
 }
 let demoOffice: OfficeView | undefined;
 /** When each desk of a demo run starts and ends: people first, their supervisor once all are done. */
@@ -688,9 +706,9 @@ function demoAdvance(run: OfficeRun, now = Date.now()) {
         report: [
           zh ? `${n.name}：已完成「${n.task}」。改动了 2 个文件，测试通过，没有遗留问题。` : `${n.name}: done — ${n.task} Two files changed, tests pass, nothing left open.`,
           ...childrenOf(run.nodes, n.id).map((k) => `ACCEPTED: ${k.name}`),
-          ...(n.criteria ?? []).map((c) => `- [x] ${c}`),
+          ...specOf(run, n).criteria.map((c) => `- [x] ${c}`),
         ].join('\n'),
-        checks: (n.criteria ?? []).map(() => 'met'),
+        checks: specOf(run, n).criteria.map(() => 'met'),
       });
     // its supervisor accepts the delivery once the supervisor is done too
     if (n.parent && times.get(n.parent) && now >= times.get(n.parent)![1]) Object.assign(p, { accepted: true });
@@ -740,7 +758,7 @@ function demoOfficeCall(method: string, p: string, body: unknown): unknown {
   }
   if (tm?.[2]) {
     const team = o.teams.find((x) => x.id === tm[1])!;
-    const run: OfficeRun = { id: newOfficeId('r'), teamId: team.id, teamName: team.name, state: 'running', startedAt: new Date().toISOString(), budget: team.budget, spent: 0, nodes: team.nodes, progress: Object.fromEntries(team.nodes.map((n) => [n.id, { state: 'waiting' as const, grants: [...n.grants] }])) };
+    const run: OfficeRun = { id: newOfficeId('r'), teamId: team.id, teamName: team.name, state: 'running', startedAt: new Date().toISOString(), budget: team.budget, spent: 0, nodes: team.nodes, deliverable: team.deliverable, criteria: team.criteria, progress: Object.fromEntries(team.nodes.map((n) => [n.id, { state: 'waiting' as const, grants: [...n.grants] }])) };
     o.runs.push(run);
     return run;
   }

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
 import type { FarmView } from '../shared/farm';
+
+export type FarmAction = 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard' | 'sell' | 'sell-fish' | 'rod' | 'bait' | 'cast' | 'reel' | 'ad' | 'ad-claim';
 import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
 import type { OfficeRun, OfficeTeam, OfficeView } from '../shared/office';
 import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';
@@ -209,7 +211,7 @@ export const api = {
   suggest: (id: string, lang: string) => call<{ suggestions: string[] }>('POST', `api/tasks/${encodeURIComponent(id)}/suggest`, { lang }),
   continueTask: (id: string, prompt: string, run: RunOverride = {}) => call<{ jobId: string; queued?: boolean }>('POST', `api/tasks/${encodeURIComponent(id)}/continue`, { prompt, ...run }),
   farm: () => call<FarmView>('GET', 'api/farm'),
-  farmAct: <R = unknown>(action: 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard', body: Record<string, unknown>) => call<{ farm: FarmView; result?: R }>('POST', `api/farm/${action}`, body),
+  farmAct: <R = unknown>(action: FarmAction, body: Record<string, unknown>) => call<{ farm: FarmView; result?: R }>('POST', `api/farm/${action}`, body),
   clearQueue: (id: string) => call<{ ok: boolean }>('DELETE', `api/tasks/${encodeURIComponent(id)}/queue`),
   farmSocial: () => call<FarmSocialView>('GET', 'api/farm/social'),
   farmSocialUpdate: (body: { profile?: FarmProfile; public?: boolean }) => call<FarmSocialView>('POST', 'api/farm/social', body),
@@ -224,7 +226,7 @@ export const api = {
   officeSave: (team: OfficeTeam) => call<OfficeTeam>('POST', 'api/office/teams', team),
   officeDelete: (id: string) => call<{ ok: boolean }>('DELETE', `api/office/teams/${encodeURIComponent(id)}`),
   /** a team for a goal, broken down by the small model (takes a minute or so) */
-  officePlan: (body: { id?: string; goal: string; budget: number; lang: string; cwd?: string; model?: string; effort?: string }) => call<OfficeTeam>('POST', 'api/office/plan', body),
+  officePlan: (body: { id?: string; goal: string; deliverable?: string; criteria?: string[]; budget: number; lang: string; cwd?: string; model?: string; effort?: string }) => call<OfficeTeam>('POST', 'api/office/plan', body),
   officeRun: (teamId: string) => call<OfficeRun>('POST', `api/office/teams/${encodeURIComponent(teamId)}/run`, {}),
   officeStop: (runId: string) => call<OfficeRun>('POST', `api/office/runs/${encodeURIComponent(runId)}/stop`, {}),
   launchOptions: () => call<LaunchOptions>('GET', 'api/launch/options'),

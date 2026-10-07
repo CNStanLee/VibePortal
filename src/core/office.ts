@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { OFFICE_GRANTS, OFFICE_ROLES, ROLE_GRANTS, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
+import { DEFAULT_GRANTS, OFFICE_GRANTS, OFFICE_ROLES, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, specOf, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
 import type { LaunchAgent, LaunchPermission, TaskInfo } from '../shared/types';
 import { summarize, type Decision } from './permissions';
 import { dataDir } from './config';
@@ -51,7 +51,7 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
       ...(EFFORTS.includes(n?.effort) && (agent === 'claude' ? n.effort !== 'minimal' : n.effort !== 'max') ? { effort: n.effort } : {}),
       task: str(n?.task, 4000),
       ...(typeof n?.parent === 'string' && n.parent ? { parent: n.parent } : {}),
-      grants: Array.isArray(n?.grants) ? OFFICE_GRANTS.filter((g) => n.grants.includes(g)) : ROLE_GRANTS[role],
+      grants: Array.isArray(n?.grants) ? OFFICE_GRANTS.filter((g) => n.grants.includes(g)) : [...DEFAULT_GRANTS],
       ...(REVIEWS.includes(n?.review) ? { review: n.review } : {}),
       ...(Number(n?.difficulty) >= 1 ? { difficulty: Math.min(5, Math.round(Number(n.difficulty))) } : {}),
       ...(str(n?.why, 200).trim() ? { why: str(n.why, 200).trim() } : {}),
@@ -69,10 +69,14 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
     if (p !== n.id && ids.has(p) && !wouldCycle(nodes, n.id, p)) n.parent = p;
   }
   const cwd = str(raw?.cwd, 1000);
+  const deliverable = str(raw?.deliverable, 600).trim();
+  const criteria = criteriaOf(raw?.criteria);
   return {
     id: str(raw?.id, 40).replace(/[^\w-]/g, '') || newOfficeId('t'),
     name: str(raw?.name, 60).trim() || 'Team',
     goal: str(raw?.goal, 8000),
+    ...(deliverable ? { deliverable } : {}),
+    ...(criteria.length ? { criteria } : {}),
     budget: Math.round(num(raw?.budget, 0.1, 10_000, 5) * 100) / 100,
     ...(cwd && path.isAbsolute(cwd) ? { cwd } : {}),
     nodes: cascadeGrants(nodes),
@@ -81,7 +85,9 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
 }
 
 // ── goal → org chart ────────────────────────────────────────────────────────
-export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'en'; codex: boolean; claude: boolean; rates?: Partial<Record<LaunchAgent, WeeklyRate>> }): string {
+export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'en'; codex: boolean; claude: boolean; rates?: Partial<Record<LaunchAgent, WeeklyRate>>; deliverable?: string; criteria?: string[] }): string {
+  const fixed = opts.deliverable?.trim();
+  const done = (opts.criteria ?? []).map((c) => c.trim()).filter(Boolean);
   const agents = [opts.claude && 'claude', opts.codex && 'codex'].filter(Boolean).join(' and ') || 'claude';
   const week = (a: LaunchAgent, name: string) => {
     const r = opts.rates?.[a];
@@ -97,12 +103,15 @@ export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'e
       .join('; ');
   };
   return [
-    "You design a team of coding agents (an org chart) for a developer's goal. The agents run as headless Claude Code or Codex sessions in one repository.",
+    "You design a team of coding agents (an org chart) for a developer's goal. The agents run as headless Claude Code or Codex sessions in one repository. Design it deliverables first: what comes out is settled before who makes it.",
     `Goal:\n"""${goal.trim()}"""`,
     [
-      'Break the goal down top-down into its real parts (e.g. design, implementation per component, verification, documentation / writing). One lead at the top. Give a part its own manager when it has 2 or more workers, so bigger goals become several levels: lead → managers → workers (→ sub-teams if needed). 2-14 agents, at most 4 levels.',
-      'Work flows bottom-up: workers run first (in parallel), then each supervisor gets their reports and integrates / reviews. Give every agent a concrete assignment (1-3 sentences) that does not overlap with its siblings.',
-      'Design the handoffs between roles: every agent has a "deliverable" — the concrete thing it hands up to its supervisor (the lead: to the developer), e.g. "the changed files + a list of new API endpoints", "a passing test suite and its output", "a findings note with file:line references" — and 2-4 "criteria": short, checkable conditions its supervisor uses to accept the delivery (e.g. "npm test passes", "no TypeScript errors", "every new endpoint documented"). A supervisor\'s deliverable builds on its people\'s; the lead\'s criteria are the goal\'s definition of done.',
+      fixed || done.length
+        ? `Step 1 — the final deliverable. The developer has settled it; keep it word for word.${fixed ? `\nFinal deliverable: ${fixed}` : ' (They gave no description: write one that fits the criteria.)'}${done.length ? `\nIt is accepted when:\n${done.map((c) => `- ${c}`).join('\n')}` : ' (They gave no criteria: write 3-5.)'}`
+        : 'Step 1 — the final deliverable. Before anything else decide what the team finally hands to the developer (concrete: e.g. "a merged-ready change on the current branch with tests and a changelog entry") and 3-5 "criteria": short, checkable conditions that say it is done (e.g. "npm test passes", "no TypeScript errors", "the setting survives a reload").',
+      'Step 2 — break the deliverable down. Split the final deliverable top-down into the sub-deliverables it is assembled from (e.g. a design note, each component\'s code change, a passing test suite and its output, docs), and those into smaller ones where needed: a tree of deliverables, at most 4 levels, 2-14 in all. Siblings must not overlap and together make up their parent. Each has 2-4 checkable "criteria" its receiver accepts it by.',
+      'Step 3 — who makes each deliverable. Only now give every deliverable its maker: one agent per deliverable, reporting to the maker of the deliverable it goes into (the final deliverable\'s maker is the lead). A maker whose deliverable is assembled from 2 or more others is a manager (or the lead). Give each a short name, a role and a concrete assignment (1-3 sentences: how it produces its deliverable).',
+      'Work flows bottom-up: the makers of the smallest deliverables run first (in parallel), then each supervisor receives its people\'s deliverables, checks them against their criteria and assembles its own.',
       'For every agent judge how hard its part is ("difficulty" 1-5: 1 routine edits / docs, 3 normal feature work, 5 research-level design or the hardest debugging) and choose provider, model and effort from that, from what each model is good at, and from how much weekly usage is left:',
       '- Claude fable: the strongest reasoning, for the very hardest open-ended design (expensive; has its own small weekly limit). opus: architecture, hard algorithms, integration, careful review, leading. sonnet: solid everyday implementation and review. haiku: simple edits, docs, formatting, quick checks.',
       '- Codex (GPT-5 class, leave "model" empty): strong at focused implementation, debugging, scripts, running and fixing tests, terminal work; it draws on the separate ChatGPT weekly limit.',
@@ -111,17 +120,16 @@ export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'e
       '- Prefer the provider with more weekly room left for work both do well; never plan more than about half of what is left on either; leads and the hardest parts stay on the strongest model available.',
       `Budget for the whole team: about $${opts.budget} at API prices. Rough cost of one agent: opus/high ≈ $2.3, sonnet/medium ≈ $0.7, haiku/medium ≈ $0.3, codex/medium ≈ $0.3. Fit the team to it.`,
       `Agents available: ${agents}. Roles: ${OFFICE_ROLES.join(' | ')}.`,
-      'Permissions ("grants"): a subset of edit | run | git | web | tools (edit files, run commands, git commit/push, use the web, other tools). Least privilege: give each agent only what its assignment needs; an agent can only hold what its supervisor holds. Give git only to whoever commits / pushes (usually the lead). Agents can still ask their supervisor for more during the run.',
       `Write names, assignments, deliverables, criteria and "why" in ${opts.lang === 'zh' ? 'Simplified Chinese' : 'English'}. Names are short (a role-like nickname). "why": one short sentence on why this provider / model / effort.`,
       'Reply with ONLY this JSON, no prose, no code fences:',
-      '{"name":"team name","nodes":[{"key":"a1","parent":null,"name":"","role":"lead","difficulty":4,"agent":"claude","model":"opus","effort":"high","grants":["edit","run","git"],"task":"","deliverable":"","criteria":[""],"why":""}]}',
-      '"parent" is the key of the supervisor (null for the lead).',
+      '{"name":"team name","deliverable":"the final deliverable","criteria":[""],"nodes":[{"key":"a1","parent":null,"deliverable":"","criteria":[""],"name":"","role":"lead","task":"","difficulty":4,"agent":"claude","model":"opus","effort":"high","why":""}]}',
+      '"parent" is the key of the supervisor (null for the lead). The lead\'s deliverable and criteria are the final ones.',
     ].join('\n'),
   ].join('\n\n');
 }
 
 /** The planner's reply as a laid-out team (unknown parents dropped, at least one desk). */
-export function parsePlan(reply: string, goal: string, budget: number, now = new Date()): OfficeTeam {
+export function parsePlan(reply: string, goal: string, budget: number, now = new Date(), fixed: { deliverable?: string; criteria?: string[] } = {}): OfficeTeam {
   let text = reply;
   try {
     text = JSON.parse(reply).result ?? reply;
@@ -144,9 +152,16 @@ export function parsePlan(reply: string, goal: string, budget: number, now = new
     id: keyToId.get(String(n?.key ?? i)),
     parent: n?.parent != null ? keyToId.get(String(n.parent)) : undefined,
     role: OFFICE_ROLES.includes(n?.role) ? (n.role as OfficeRole) : 'engineer',
+    // every desk starts with every permission; the developer narrows them down if they want
+    grants: undefined,
   }));
   if (!nodes.length) throw Object.assign(new Error('the planner came back with an empty team — try again'), { status: 502 });
-  const team = cleanTeam({ name: raw?.name, goal, budget, nodes }, now);
+  // the final deliverable lives on the team (the developer's, else the planner's); the lead takes it from there
+  const lead = nodes.find((n) => !n.parent);
+  const deliverable = fixed.deliverable?.trim() || str(raw?.deliverable, 600).trim() || str(lead?.deliverable, 600).trim();
+  const criteria = criteriaOf(fixed.criteria).length ? criteriaOf(fixed.criteria) : criteriaOf(raw?.criteria).length ? criteriaOf(raw.criteria) : criteriaOf(lead?.criteria);
+  for (const n of nodes) if (!n.parent) Object.assign(n, { deliverable: undefined, criteria: undefined });
+  const team = cleanTeam({ name: raw?.name, goal, budget, nodes, deliverable, criteria }, now);
   return { ...team, nodes: autoLayout(team.nodes) };
 }
 
@@ -274,6 +289,8 @@ export class Office {
       budget: team.budget,
       spent: 0,
       nodes: team.nodes.map((n) => ({ ...n })),
+      ...(team.deliverable ? { deliverable: team.deliverable } : {}),
+      ...(team.criteria ? { criteria: [...team.criteria] } : {}),
       progress: Object.fromEntries(team.nodes.map((n) => [n.id, { state: 'waiting' as const, grants: [...n.grants] }])),
     };
     this.data.runs = [...this.data.runs, run].slice(-MAX_RUNS);
@@ -319,7 +336,8 @@ export class Office {
       if (p.state === 'failed') p.error = clip(job.detail, 300);
       // the checklist and the verdicts come at the end: read them from the whole report
       const node = run.nodes.find((n) => n.id === entry[0]);
-      if (node?.criteria?.length) p.checks = parseChecks(full, node.criteria);
+      const crit = node ? specOf(run, node).criteria : [];
+      if (crit.length) p.checks = parseChecks(full, crit);
       if (node && p.state === 'done')
         for (const [id, v] of Object.entries(parseVerdicts(full, childrenOf(run.nodes, node.id)))) {
           const kp = run.progress[id];
@@ -482,7 +500,7 @@ export class Office {
           changed = true;
           continue;
         }
-        const prompt = nodePrompt({ goal: team.goal, nodes: run.nodes }, n, kids.map((k) => ({ node: k, state: run.progress[k.id].state, report: run.progress[k.id].report })));
+        const prompt = nodePrompt({ goal: team.goal, nodes: run.nodes, deliverable: run.deliverable, criteria: run.criteria }, n, kids.map((k) => ({ node: k, state: run.progress[k.id].state, report: run.progress[k.id].report })));
         // taken before it starts: the start itself publishes (and its job update comes back here)
         p.state = 'running';
         try {

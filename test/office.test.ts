@@ -7,7 +7,7 @@ import path from 'node:path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-office-'));
 process.env.VIBEPORTAL_HOME = home;
 
-import { assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeNode } from '../src/shared/office';
+import { OFFICE_GRANTS, applyPreset, presetOf, specOf, undelivered, assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeNode } from '../src/shared/office';
 import { Office, cleanTeam, parsePlan, parseReview, planPrompt, reviewPrompt, type OfficeHost } from '../src/core/office';
 import type { TaskInfo } from '../src/shared/types';
 
@@ -217,8 +217,8 @@ test('office: permissions — which one a tool needs, and a desk holds only what
 
   const nodes = cascadeGrants([node('lead', undefined, { grants: ['edit'] }), node('a', 'lead', { grants: ['edit', 'run', 'git'] }), node('b', 'a', { grants: ['run', 'edit'] })]);
   assert.deepEqual(nodes.map((n) => n.grants), [['edit'], ['edit'], ['edit']]);
-  const team = cleanTeam({ nodes: [{ id: 'l', role: 'lead' }, { id: 'r', role: 'researcher', parent: 'l' }, { id: 'e', role: 'engineer', parent: 'l', grants: ['edit', 'bogus'] }] });
-  assert.deepEqual(team.nodes.map((n) => n.grants), [['edit', 'run', 'git'], [], ['edit']], 'role defaults, cut to the lead; unknown grants dropped');
+  const team = cleanTeam({ nodes: [{ id: 'l', role: 'lead', grants: ['edit', 'run', 'git'] }, { id: 'r', role: 'researcher', parent: 'l' }, { id: 'e', role: 'engineer', parent: 'l', grants: ['edit', 'bogus'] }] });
+  assert.deepEqual(team.nodes.map((n) => n.grants), [['edit', 'run', 'git'], ['edit', 'run', 'git'], ['edit']], 'everything by default, cut to the lead; unknown grants dropped');
   assert.match(nodePrompt({ goal: '', nodes: team.nodes }, team.nodes[2], []), /Your permissions: edit files\. .*your supervisor Agent/);
 
   assert.deepEqual(parseReview(JSON.stringify({ result: 'Sure. {"allow": false, "reason": "too risky"}' })), { allow: false, reason: 'too risky' });
@@ -295,9 +295,9 @@ test('office: teams saved before desks had permissions load (the floor no longer
   fs.writeFileSync(file, JSON.stringify({ teams: [{ id: 'old', name: 'Old', goal: 'g', budget: 35, permission: 'auto', nodes: [{ id: 'a', name: 'Lead', role: 'lead', agent: 'claude', task: '', x: 1, y: 2 }, { id: 'b', name: 'W', role: 'writer', agent: 'claude', task: '', parent: 'a', x: 3, y: 4 }], updatedAt: '2026-10-06T00:00:00Z' }], runs: [{ id: 'r', teamId: 'old', state: 'done', nodes: [{ id: 'a', role: 'lead' }], progress: { a: { state: 'done' } } }] }));
   const office = new Office();
   const [team] = office.view().teams;
-  assert.deepEqual(team.nodes.map((n) => n.grants), [['edit', 'run', 'git'], ['edit']]);
+  assert.deepEqual(team.nodes.map((n) => n.grants), [OFFICE_GRANTS, OFFICE_GRANTS], 'they get everything, like a new desk');
   assert.equal((team as { permission?: string }).permission, undefined);
-  assert.deepEqual(office.view().runs[0].nodes[0].grants, ['edit', 'run', 'git']);
+  assert.deepEqual(office.view().runs[0].nodes[0].grants, OFFICE_GRANTS);
   fs.writeFileSync(file, keep);
 });
 
@@ -460,4 +460,78 @@ test('office: handoff steps and a tree layout with rows as tall as their tallest
   const looped = [node('p', 'q'), node('q', 'p')];
   assert.equal(stageOf(looped, 'p') > 0, true, 'a loop does not hang it');
   assert.equal(autoLayout(looped).length, 2);
+});
+
+test('office: desks start with every permission, and a preset sets the whole team', () => {
+  const planned = parsePlan(JSON.stringify({ nodes: [{ key: 'a', role: 'lead', task: 'L', grants: ['edit'] }, { key: 'b', parent: 'a', role: 'researcher', task: 'R' }] }), 'G', 5);
+  assert.deepEqual(planned.nodes.map((n) => n.grants), [OFFICE_GRANTS, OFFICE_GRANTS], 'the planner hands out everything');
+  assert.doesNotMatch(planPrompt('G', { budget: 5, lang: 'en', claude: true, codex: true }), /grants/);
+  assert.equal(presetOf(planned.nodes), 'all');
+
+  const nodes = [node('lead', undefined, { role: 'lead' }), node('r', 'lead', { role: 'researcher' }), node('w', 'lead', { role: 'writer', grants: [] })];
+  assert.equal(presetOf(nodes), undefined, 'a mix matches no preset');
+  for (const p of ['all', 'build', 'edit', 'read'] as const) {
+    const set = applyPreset(nodes, p);
+    assert.ok(set.every((n) => n.grants.join() === set[0].grants.join()), `${p}: everyone the same`);
+    assert.equal(presetOf(set), p);
+  }
+  assert.deepEqual(applyPreset(nodes, 'all')[2].grants, OFFICE_GRANTS, 'not just the top of the team');
+  assert.deepEqual(applyPreset(nodes, 'build')[1].grants, ['edit', 'run']);
+  const byRole = applyPreset(nodes, 'role');
+  assert.deepEqual(byRole.map((n) => n.grants), [['edit', 'run', 'git'], [], ['edit']], 'by role, cut to the lead');
+  assert.equal(presetOf(byRole), 'role');
+});
+
+test('office: deliverables come first — the final one is settled before the team, the team is cut from it', () => {
+  const free = planPrompt('Ship dark mode', { budget: 5, lang: 'en', claude: true, codex: true });
+  const at = (re: RegExp) => free.search(re);
+  assert.ok(at(/Step 1 — the final deliverable/) >= 0);
+  assert.ok(at(/Step 1/) < at(/Step 2 — break the deliverable down/) && at(/Step 2/) < at(/Step 3 — who makes each deliverable/), 'what comes out, then its parts, then who');
+  assert.ok(at(/Step 3/) < at(/"difficulty" 1-5/), 'models are picked for the makers, last');
+  assert.match(free, /\{"name":"team name","deliverable":"the final deliverable","criteria"/);
+  const fixed = planPrompt('Ship dark mode', { budget: 5, lang: 'en', claude: true, codex: true, deliverable: 'A PR with dark mode', criteria: ['tests pass', ' '] });
+  assert.match(fixed, /The developer has settled it; keep it word for word\.\nFinal deliverable: A PR with dark mode\nIt is accepted when:\n- tests pass$/m);
+
+  const reply = JSON.stringify({
+    deliverable: 'Planner’s final',
+    criteria: ['p1'],
+    nodes: [
+      { key: 'a', role: 'lead', task: 'L', deliverable: 'Lead’s own', criteria: ['l1'] },
+      { key: 'b', parent: 'a', task: 'B', deliverable: 'Part B', criteria: ['b1'] },
+    ],
+  });
+  const t1 = parsePlan(reply, 'G', 5);
+  assert.equal(t1.deliverable, 'Planner’s final');
+  assert.deepEqual(t1.criteria, ['p1']);
+  assert.equal(t1.nodes[0].deliverable, undefined, 'the lead takes the team’s');
+  assert.deepEqual(specOf(t1, t1.nodes[0]), { deliverable: 'Planner’s final', criteria: ['p1'] });
+  assert.deepEqual(specOf(t1, t1.nodes[1]), { deliverable: 'Part B', criteria: ['b1'] });
+  const t2 = parsePlan(reply, 'G', 5, new Date(), { deliverable: 'Mine', criteria: ['m1', 'm2'] });
+  assert.equal(t2.deliverable, 'Mine', 'the developer’s final deliverable wins');
+  assert.deepEqual(t2.criteria, ['m1', 'm2']);
+  const t3 = parsePlan(JSON.stringify({ nodes: [{ key: 'a', role: 'lead', task: 'L', deliverable: 'Only the lead’s', criteria: ['x'] }] }), 'G', 5);
+  assert.equal(t3.deliverable, 'Only the lead’s', 'a lead-only answer still lands on the team');
+
+  // a desk without a deliverable holds the team back; the top desk has the team's
+  const team = cleanTeam({ deliverable: 'The release', criteria: ['- all green'], nodes: [{ id: 'l', role: 'lead' }, { id: 'a', parent: 'l', deliverable: 'API' }, { id: 'b', parent: 'l' }] });
+  assert.deepEqual(team.criteria, ['all green']);
+  assert.deepEqual(undelivered(team).map((n) => n.id), ['b']);
+  assert.deepEqual(undelivered({ ...team, deliverable: undefined }).map((n) => n.id), ['l', 'b']);
+
+  const lead = nodePrompt(team, team.nodes[0], []);
+  assert.match(lead, /What you hand to the developer \(your deliverable\): The release\n\nIt counts as delivered when:\n- all green\n\nYour assignment \(how you get there\)/, 'the deliverable before the assignment');
+  assert.match(nodePrompt(team, team.nodes[1], []), /It goes into LEAD's deliverable: The release|It goes into Agent's deliverable: The release/);
+});
+
+test('office: a run judges the top desk by the team’s final criteria', () => {
+  const office = new Office();
+  const { host, bind } = fakeHost({ report: () => 'done\n- [x] all green\n- [ ] documented — later' });
+  bind(office);
+  office.attach(host);
+  const team = office.saveTeam({ name: 'F', goal: 'G', deliverable: 'The release', criteria: ['all green', 'documented'], budget: 50, cwd: home, nodes: [node('lead', undefined, { role: 'lead' })] });
+  const run = office.startRun(team.id, () => true);
+  assert.equal(run.deliverable, 'The release', 'the run keeps what it set out to deliver');
+  assert.match(host.started[0].prompt, /your deliverable\): The release/);
+  host.finish(0);
+  assert.deepEqual(run.progress.lead.checks, ['met', 'unmet']);
 });
