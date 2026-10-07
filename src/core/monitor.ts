@@ -676,8 +676,9 @@ export class Monitor extends EventEmitter {
     if (worst && worst.q.severity === 'critical') {
       return { mood: 'alert', message: `${worst.p.name} ${worst.q.label}: ${Math.round(worst.q.percent)}%!` };
     }
+    // an archived conversation was seen and put away: nothing to celebrate
     const justDone = tasks
-      .filter((t) => t.finishedAt && Date.now() - Date.parse(t.finishedAt) < 90_000)
+      .filter((t) => !t.archived && t.finishedAt && Date.now() - Date.parse(t.finishedAt) < 90_000)
       .sort((a, b) => b.finishedAt!.localeCompare(a.finishedAt!))[0];
     if (justDone) return { mood: 'happy', message: `Done: ${justDone.title}` };
     const running = tasks.filter((t) => t.state === 'running');
