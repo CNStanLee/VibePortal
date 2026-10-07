@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MULTI_DRAW, MUTATION, MYTHIC_MUTATION, PITY, RARITIES, RARITY_ODDS, SPECIAL_COLORS, SPECIES, TOKENS_PER_DRAW, WELCOME_DRAWS, allCrops, colorsFor, creditUsage, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, normalizeFarm, plant, stageOf, storeCrop, uproot, type Rarity } from '../src/shared/farm';
 import { farmDaily } from '../src/core/farm';
-import { CROP_PRICE, buyBait, cast, claimAd, cropPrice, reel, sellCrop, sellFish, startAd, takeRod } from '../src/shared/farm';
+import { CROP_PRICE, buyBait, cast, claimAd, cropPrice, duplicateCrops, reel, sellCrop, sellDuplicates, sellFish, startAd, takeRod } from '../src/shared/farm';
 import { BAIT_PACK, BAIT_PRICE, CASTS_PER_DAY, FISH, FISH_PRICE, FREE_BAIT_PER_DAY, RODS, fishKind, fishPrice, type Fish } from '../src/shared/farmPond';
 import { AD_REWARD, AD_SECONDS, ADS_PER_DAY, HOUSE_ADS } from '../src/shared/farmAds';
 
@@ -275,4 +275,17 @@ test('farm: an ad watched to the end pays tokens, a few times a day', () => {
   assert.throws(() => startAd(s, t0), /all the ads for today/);
   assert.equal(farmView(s, t0 + 86400_000).adsLeft, ADS_PER_DAY);
   startAd(s, t0 + 86400_000);
+});
+
+test('farm: duplicates sell in one go, one of each kind stays (the showcase copy first)', () => {
+  const s = newFarm('2026-01-01');
+  const crop = (id: string, extra: Partial<import('../src/shared/farm').Crop> = {}) => ({ id, species: 'rose', rarity: 'rare' as const, color: 'gold' as const, harvestedAt: 1, ...extra });
+  s.stored.push(crop('s1'), crop('s2', { mutated: true }));
+  s.crops.push(crop('c1'), crop('c2'), crop('c3', { color: 'red' }), crop('c4', { rarity: 'epic' }), crop('c5', { mutated: true }));
+  assert.deepEqual(duplicateCrops(s).map((c) => c.id), ['c2', 's1', 's2'], 'same species, quality, colour and mutation');
+  const before = s.income.crops;
+  assert.equal(sellDuplicates(s), cropPrice(crop('x')) * 2 + cropPrice(crop('x', { mutated: true })));
+  assert.deepEqual(allCrops(s).map((c) => c.id), ['c1', 'c3', 'c4', 'c5']);
+  assert.ok(s.income.crops > before);
+  assert.throws(() => sellDuplicates(s), /no duplicate/);
 });

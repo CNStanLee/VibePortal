@@ -7,7 +7,7 @@ import path from 'node:path';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-office-'));
 process.env.VIBEPORTAL_HOME = home;
 
-import { OFFICE_GRANTS, applyPreset, presetOf, specOf, undelivered, assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeHelper, type OfficeNode } from '../src/shared/office';
+import { OFFICE_GRANTS, applyPreset, canGoAfter, cleanAfter, waitsInRing, waitsOn, presetOf, specOf, undelivered, assignModels, autoLayout, cascadeGrants, deliveryOf, layoutTree, parseChecks, parseVerdicts, stageOf, estimateTeam, fitToBudget, grantOf, nodePrompt, roughRate, shiftEfforts, teamEffort, usdToWeeklyPct, weeklyPctToUsd, weeklyRates, withEffortLevel, wouldCycle, type OfficeHelper, type OfficeNode } from '../src/shared/office';
 import { subagentsOf } from '../src/core/subagents';
 import { Office, cleanTeam, parsePlan, parseReview, planPrompt, reviewPrompt, type OfficeHost } from '../src/core/office';
 import type { TaskInfo } from '../src/shared/types';
@@ -102,7 +102,7 @@ test('office: a desk is told the goal, its supervisor, its task and its people�
     { node: nodes[2], state: 'failed', report: 'x'.repeat(20_000) },
   ]);
   assert.match(top, /top of the team/);
-  assert.match(top, /### A \(engineer, Claude\) — done\nAPI done/);
+  assert.match(top, /### A \(engineer, Claude\) — done \(can be sent back 2 more times\)\nAPI done/);
   assert.match(top, /### B \(engineer, Codex\) — FAILED/);
   assert.ok(top.length < 20_000, 'stays under the launcher limit');
 });
@@ -116,8 +116,8 @@ test('office: layout keeps a loop from hanging it', () => {
 let jobSeq = 0;
 
 /** A host that records what it was asked to start and lets the test finish runs. */
-function fakeHost(opts: { limit?: number; verdict?: string; report?: (taskId: string) => string | undefined } = {}) {
-  const started: { jobId: string; prompt: string; agent: string; cwd: string }[] = [];
+function fakeHost(opts: { limit?: number; verdict?: string; report?: (taskId: string) => string | undefined; noResume?: boolean } = {}) {
+  const started: { jobId: string; prompt: string; agent: string; cwd: string; resumed?: string }[] = [];
   const running = new Set<string>();
   let office: Office;
   const host: OfficeHost & { started: typeof started; finish(i: number, state?: 'done' | 'failed'): void; stopped: string[]; judged: { prompt: string; model: string }[] } = {
@@ -129,6 +129,16 @@ function fakeHost(opts: { limit?: number; verdict?: string; report?: (taskId: st
       running.add(jobId);
       started.push({ jobId, prompt: req.prompt, agent: req.agent, cwd: req.cwd });
       // like the real runner: the start publishes, which observes the office again
+      office.observe([]);
+      office.onJob({ id: jobId, state: 'running' });
+      return { jobId, taskId: `dispatch:${jobId}` };
+    },
+    resume(req) {
+      if (opts.noResume) throw Object.assign(new Error('This task cannot be continued'), { status: 400 });
+      if (running.size >= (opts.limit ?? 3)) throw Object.assign(new Error('Too many'), { status: 429 });
+      const jobId = `j${++jobSeq}`;
+      running.add(jobId);
+      started.push({ jobId, prompt: req.prompt, agent: req.agent, cwd: '', resumed: req.taskId });
       office.observe([]);
       office.onJob({ id: jobId, state: 'running' });
       return { jobId, taskId: `dispatch:${jobId}` };
@@ -424,6 +434,8 @@ test('office: weekly limits — tokens per 1% from this week, the budget as a sh
   assert.match(prompt, /Claude: 50% of its weekly limit used, 50% left/);
   assert.match(prompt, /Weekly · Fable: 80% used/);
   assert.match(prompt, /Codex: 10% of its weekly limit used/);
+  assert.match(prompt, /\$1 of work ≈ [\d.]+% of the Claude week/);
+  assert.doesNotMatch(prompt, /of the Codex week/, 'a rough conversion is not given as fact');
   assert.match(prompt, /"difficulty"/);
   assert.match(prompt, /at most 4 levels/);
   assert.match(planPrompt('x', { budget: 1, lang: 'zh', claude: true, codex: false }), /Codex: not installed/);
@@ -445,6 +457,17 @@ test('office: models by difficulty, strengths and weekly room; effort sliders', 
   const tight = assignModels(nodes, { rates: { claude: { used: 92, sample: 1e7, others: [] }, codex: { used: 20, sample: 1e7, others: [] } }, available: { claude: true, codex: true } });
   assert.deepEqual(tight.map((n) => n.agent), ['claude', 'codex', 'codex', 'codex', 'codex'], 'Claude nearly used up: only the lead stays');
   assert.ok(assignModels(nodes, { rates: roomy, available: { claude: true, codex: false } }).every((n) => n.agent === 'claude'));
+
+  // a writing team: reviews go to Codex when it has the room; writers and managers stay on Claude
+  const paper = [node('lead', undefined, { role: 'lead' }), node('mgr', 'lead', { role: 'manager' }), node('r1', 'mgr', { role: 'reviewer' }), node('r2', 'mgr', { role: 'reviewer' }), node('w', 'lead', { role: 'writer', difficulty: 4 })];
+  const week = { claude: { used: 67, sample: 1e7, others: [] }, codex: { used: 9, sample: 4e5, others: [] } };
+  assert.deepEqual(assignModels(paper, { rates: week, available: { claude: true, codex: true } }).map((n) => n.agent), ['claude', 'claude', 'codex', 'codex', 'claude']);
+  // less room on Codex: it still takes a share, its strongest suits first
+  const crew = [node('lead', undefined, { role: 'lead' }), node('e1', 'lead'), node('rev', 'lead', { role: 'reviewer', difficulty: 2 }), node('e2', 'lead', { difficulty: 4 })];
+  const less = { claude: { used: 20, sample: 1e7, others: [] }, codex: { used: 60, sample: 1e7, others: [] } };
+  assert.deepEqual(assignModels(crew, { rates: less, available: { claude: true, codex: true } }).map((n) => n.agent), ['claude', 'codex', 'claude', 'claude']);
+  const spent = { claude: { used: 20, sample: 1e7, others: [] }, codex: { used: 90, sample: 1e7, others: [] } };
+  assert.ok(assignModels(crew, { rates: spent, available: { claude: true, codex: true } }).every((n) => n.agent === 'claude'), 'a nearly used-up Codex takes nothing');
 
   const codex = node('c', undefined, { agent: 'codex', effort: 'low' });
   assert.equal(withEffortLevel(codex, 9).effort, 'xhigh', 'Codex tops out at xhigh');
@@ -529,9 +552,9 @@ test('office: a run reads the checklist and the verdicts from the whole report',
   assert.equal(deliveryOf(run.progress.a), 'delivered');
   host.finish(1);
   assert.deepEqual(run.progress.lead.checks, ['met']);
-  assert.equal(run.progress.a.accepted, false);
   assert.equal(run.progress.a.acceptNote, 'types missing');
-  assert.equal(deliveryOf(run.progress.a), 'rejected');
+  assert.deepEqual(run.progress.a.sentBack, { by: 'LEAD', note: 'types missing' }, 'a rejected delivery goes back');
+  assert.equal(deliveryOf(run.progress.a), 'making');
   assert.equal(deliveryOf(undefined), 'none');
 });
 
@@ -621,4 +644,97 @@ test('office: a run judges the top desk by the team’s final criteria', () => {
   assert.match(host.started[0].prompt, /your deliverable\): The release/);
   host.finish(0);
   assert.deepEqual(run.progress.lead.checks, ['met', 'unmet']);
+});
+
+test('office: a rejected delivery goes back to its desk, in its own conversation, and comes back to be checked', () => {
+  const office = new Office();
+  const reports = new Map<string, string>();
+  const { host, bind } = fakeHost({ report: (taskId) => reports.get(taskId) });
+  bind(office);
+  office.attach(host);
+  const say = (i: number, text: string) => reports.set(`dispatch:${host.started[i].jobId}`, text);
+  const team = office.saveTeam({
+    name: 'T',
+    goal: 'G',
+    budget: 50,
+    cwd: home,
+    nodes: [node('lead', undefined, { role: 'lead' }), node('a', 'lead', { task: 'revise' }), node('rev', 'lead', { role: 'reviewer', after: ['a'] })],
+  });
+  const run = office.startRun(team.id, () => true);
+  assert.deepEqual(host.started.map((s) => s.prompt.match(/You are (\w+)/)?.[1]), ['A'], 'the reviewer goes after A');
+  say(0, 'revised the intro');
+  host.finish(0);
+  assert.match(host.started[1].prompt, /You are REV/);
+  assert.match(host.started[1].prompt, /start after these desks[\s\S]*revised the intro/, 'it gets what A handed over');
+  host.finish(1);
+  assert.match(host.started[2].prompt, /You are LEAD[\s\S]*can be sent back 2 more times/);
+  assert.match(host.started[2].prompt, /sub-agents \(the Agent tool\)/);
+
+  say(2, 'REJECTED: A — the abstract is too long\nREJECTED: REV — review the new draft');
+  host.finish(2);
+  assert.equal(run.progress.lead.state, 'waiting', 'the lead waits to check again');
+  assert.deepEqual(run.progress.lead.recheck, ['a', 'rev']);
+  assert.equal(run.progress.a.redos, 1);
+  const redo = host.started[3];
+  assert.equal(redo.resumed, `dispatch:${host.started[0].jobId}`, 'A goes on in its own conversation');
+  assert.match(redo.prompt, /LEAD sent your delivery back to be redone \(1 of at most 2\)[\s\S]*the abstract is too long/);
+  assert.equal(run.progress.a.round, 2);
+  assert.equal(run.progress.rev.state, 'waiting', 'the review waits for the redo');
+  say(3, 'shortened the abstract');
+  host.finish(3);
+  assert.equal(host.started[4].resumed, `dispatch:${host.started[1].jobId}`);
+  assert.match(host.started[4].prompt, /review the new draft[\s\S]*handed over again since[\s\S]*shortened the abstract/);
+  host.finish(4);
+  const recheck = host.started[5];
+  assert.equal(recheck.resumed, `dispatch:${host.started[2].jobId}`, 'the lead checks again in its own conversation');
+  assert.match(recheck.prompt, /have been redone[\s\S]*shortened the abstract[\s\S]*can be sent back 1 more time\b/);
+
+  // the last allowed send-back, then the lead has to make up for what is missing itself
+  say(5, 'REJECTED: A — still too long');
+  host.finish(5);
+  assert.equal(run.progress.a.redos, 2);
+  host.finish(6);
+  assert.match(host.started[7].prompt, /can't be sent back again/);
+  say(7, 'REJECTED: A — I trimmed it myself');
+  host.finish(7);
+  assert.equal(run.progress.a.redos, 2, 'no third send-back');
+  assert.equal(run.progress.a.accepted, false);
+  assert.equal(run.state, 'done');
+  assert.equal(host.started.length, 8);
+});
+
+test('office: a desk whose conversation can’t go on redoes its part in a fresh run', () => {
+  const office = new Office();
+  const reports = new Map<string, string>();
+  const { host, bind } = fakeHost({ noResume: true, report: (taskId) => reports.get(taskId) });
+  bind(office);
+  office.attach(host);
+  const team = office.saveTeam({ name: 'T', goal: 'G', budget: 50, cwd: home, nodes: [node('lead', undefined, { role: 'lead' }), node('a', 'lead')] });
+  const run = office.startRun(team.id, () => true);
+  host.finish(0);
+  reports.set(`dispatch:${host.started[1].jobId}`, 'REJECTED: A — no tests');
+  host.finish(1);
+  assert.equal(host.started[2].resumed, undefined);
+  assert.match(host.started[2].prompt, /You are A[\s\S]*sent your delivery back[\s\S]*no tests/, 'the whole brief, and what is missing');
+  host.finish(2);
+  assert.match(host.started[3].prompt, /You are LEAD[\s\S]*have been redone/);
+  host.finish(3);
+  assert.equal(run.state, 'done');
+});
+
+test('office: "goes after" links — kept only where they can work, planned by key', () => {
+  const nodes = [node('lead', undefined, { role: 'lead' }), node('m', 'lead', { role: 'manager' }), node('r', 'm', { after: ['w'] }), node('w', 'lead', { after: ['r', 'lead', 'ghost', 'w'] })];
+  assert.deepEqual(waitsOn(nodes, 'r'), ['w']);
+  assert.ok(waitsInRing(nodes), 'r after w after r');
+  const clean = cleanAfter(nodes);
+  assert.deepEqual(clean.find((n) => n.id === 'r')?.after, ['w']);
+  assert.equal(clean.find((n) => n.id === 'w')?.after, undefined, 'the ring, a supervisor, unknown desks and itself are dropped');
+  assert.ok(!waitsInRing(clean));
+  assert.ok(!canGoAfter(clean, 'w', 'm'), 'm waits for r, which waits for w');
+  assert.ok(canGoAfter(clean, 'm', 'w'));
+  // a desk below one that goes after waits too
+  assert.deepEqual(waitsOn(cleanAfter([...clean.filter((n) => n.id !== 'r'), node('r', 'm'), node('x', 'lead')].map((n) => (n.id === 'm' ? { ...n, after: ['x'] } : n))), 'r'), ['x']);
+  const planned = parsePlan(JSON.stringify({ nodes: [{ key: 'a', role: 'lead' }, { key: 'b', parent: 'a' }, { key: 'c', parent: 'a', after: ['b'] }] }), 'G', 5);
+  assert.deepEqual(planned.nodes[2].after, [planned.nodes[1].id]);
+  assert.match(planPrompt('x', { budget: 1, lang: 'en', claude: true, codex: true }), /"after"[\s\S]*never a desk per round/);
 });

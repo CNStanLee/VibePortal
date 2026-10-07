@@ -46,6 +46,8 @@ export interface OfficeNode {
   deliverable?: string;
   /** how its supervisor judges the delivery a success: short, checkable */
   criteria?: string[];
+  /** desks that must have finished before it starts (e.g. revising from the reviews comes after the reviews); their reports go to it */
+  after?: string[];
   /** position on the floor (top-left of the desk) */
   x: number;
   y: number;
@@ -99,6 +101,12 @@ export interface OfficeRunNode {
   /** its supervisor's verdict on the delivery (from the supervisor's report) */
   accepted?: boolean;
   acceptNote?: string;
+  /** how often its supervisor sent the delivery back to be redone (at most MAX_REDOS) */
+  redos?: number;
+  /** the latest send-back: who, and what is still missing */
+  sentBack?: { by: string; note: string };
+  /** a supervisor waiting to check these people again once they have redone their part */
+  recheck?: string[];
   /** sub-agents it started (Claude's Agent tool): they join the floor below it */
   helpers?: OfficeHelper[];
 }
@@ -262,6 +270,45 @@ export function chainOf(nodes: OfficeNode[], id: string): OfficeNode[] {
   return out;
 }
 
+/** What a desk waits for before it starts: its people, and the desks it (or a desk above it) goes after. */
+export function waitsOn(nodes: OfficeNode[], id: string): string[] {
+  const n = nodes.find((x) => x.id === id);
+  if (!n) return [];
+  const after = [n, ...chainOf(nodes, id)].flatMap((m) => m.after ?? []);
+  return [...new Set([...childrenOf(nodes, id).map((k) => k.id), ...after])].filter((x) => x !== id && nodes.some((m) => m.id === x));
+}
+
+/** Whether some desks would wait for each other in a ring (and so never start). */
+export function waitsInRing(nodes: OfficeNode[]): boolean {
+  const seen = new Map<string, 'open' | 'done'>();
+  const visit = (id: string): boolean => {
+    if (seen.get(id) === 'done') return false;
+    if (seen.get(id) === 'open') return true;
+    seen.set(id, 'open');
+    const ring = waitsOn(nodes, id).some(visit);
+    seen.set(id, 'done');
+    return ring;
+  };
+  return nodes.some((n) => visit(n.id));
+}
+
+/** Whether `id` may go after `other`: not a desk above or below it (those wait anyway), and no ring of waiting. */
+export function canGoAfter(nodes: OfficeNode[], id: string, other: string): boolean {
+  if (id === other || !nodes.some((n) => n.id === other)) return false;
+  if (chainOf(nodes, id).some((m) => m.id === other) || chainOf(nodes, other).some((m) => m.id === id)) return false;
+  return !waitsInRing(nodes.map((n) => (n.id === id ? { ...n, after: [...new Set([...(n.after ?? []), other])] } : n)));
+}
+
+/** Only the "goes after" links that can work, in the order given. */
+export function cleanAfter(nodes: OfficeNode[]): OfficeNode[] {
+  const wanted = new Map(nodes.map((n) => [n.id, n.after ?? []]));
+  let cur = nodes.map(({ after: _, ...n }) => n as OfficeNode);
+  for (const n of nodes)
+    for (const a of wanted.get(n.id)!)
+      if (canGoAfter(cur, n.id, a)) cur = cur.map((m) => (m.id === n.id ? { ...m, after: [...(m.after ?? []), a] } : m));
+  return cur;
+}
+
 export const DESK_W = 168;
 export const DESK_H = 150;
 const GAP_X = 28;
@@ -399,7 +446,7 @@ export function parseVerdicts(report: string | undefined, people: Pick<OfficeNod
     const who = byName.find((p) => rest.toLowerCase().startsWith(p.name.toLowerCase()));
     if (!who) continue;
     const note = rest.slice(who.name.length).replace(/^[*_`]*\s*[—–:：,，-]*\s*/, '').trim();
-    out[who.id] = { accepted: /^(accepted|接受|验收通过)$/i.test(m[1]), ...(note ? { note: note.slice(0, 200) } : {}) };
+    out[who.id] = { accepted: /^(accepted|接受|验收通过)$/i.test(m[1]), ...(note ? { note: note.slice(0, 600) } : {}) };
   }
   return out;
 }
@@ -523,26 +570,56 @@ const GRANT_LINE: Record<OfficeGrant, string> = {
   tools: 'other tools (MCP)',
 };
 
-/** What a desk is told: the team goal, who it reports to, its own task, and its people's reports. */
-export function nodePrompt(team: { goal: string } & Deliverables, n: OfficeNode, reports: { node: OfficeNode; state: OfficeNodeState; report?: string }[]): string {
+/** how often a supervisor may send one delivery back to be redone */
+export const MAX_REDOS = 2;
+
+/** A finished desk's report, as passed to whoever builds on it. */
+export interface DeskReport {
+  node: OfficeNode;
+  state: OfficeNodeState;
+  report?: string;
+  /** times it was sent back already (supervisors see how many are left) */
+  redos?: number;
+}
+
+const whoOf = (m: OfficeNode) => `${m.name} (${m.role}, ${m.agent === 'codex' ? 'Codex' : 'Claude'})`;
+const stateWord = (s: OfficeNodeState) => (s === 'done' ? 'done' : s === 'skipped' ? 'did not run' : 'FAILED');
+
+/** Reports one after another, each with what it was to deliver; `budget`: characters for all of them. */
+function reportList(team: Deliverables & { nodes: OfficeNode[] }, reports: DeskReport[], budget: number, withRedos: boolean): string {
+  const per = Math.floor(Math.min(4000, budget / Math.max(1, reports.length)));
+  return reports
+    .map((r) => {
+      const x = specOf(team, r.node);
+      const spec = [x.deliverable && `Deliverable: ${x.deliverable.slice(0, 300)}`, x.criteria.length && `Criteria: ${x.criteria.map((c) => c.slice(0, 160)).join('; ')}`]
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, Math.max(200, Math.floor(4000 / Math.max(1, reports.length))));
+      const left = MAX_REDOS - (r.redos ?? 0);
+      const redo = withRedos ? (left > 0 ? ` (can be sent back ${left} more time${left > 1 ? 's' : ''})` : ' (can\'t be sent back again: fix what is still missing yourself)') : '';
+      return `### ${whoOf(r.node)} — ${stateWord(r.state)}${redo}\n${spec ? `${spec}\n` : ''}${(r.report ?? '').trim().slice(0, per) || '(no report)'}`;
+    })
+    .join('\n\n');
+}
+
+const VERDICT_ASK = 'In the report give your verdict on each delivery, one line per person: "ACCEPTED: <name>" or "REJECTED: <name> — what is still missing".';
+/** supervisors send work back instead of doing it themselves (or handing it to sub-agents nobody budgeted) */
+const SEND_BACK_LINE =
+  "A REJECTED delivery goes back to that person with your note, to be redone in their own conversation (they keep what they know), and then comes back to you: say exactly what is missing. Don't redo your people's work yourself or hand it to sub-agents (the Agent tool) — send it back; use sub-agents only for small lookups within your own part. Work that has to happen in order (revise, then review again) comes back in that order.";
+const checklistLine = (crit: string[]) => (crit.length ? 'Finish the report with your criteria as a checklist, in the order given: "- [x] <criterion>" when met, "- [ ] <criterion> — why not" when not.' : '');
+
+/** What a desk is told: the team goal, who it reports to, its own task, the reports of desks it goes after, and its people's reports. */
+export function nodePrompt(team: { goal: string } & Deliverables, n: OfficeNode, reports: DeskReport[], before: DeskReport[] = []): string {
   const chain = chainOf(team.nodes, n.id);
-  const who = (m: OfficeNode) => `${m.name} (${m.role}, ${m.agent === 'codex' ? 'Codex' : 'Claude'})`;
-  // the whole prompt stays well under the launcher's 20k characters
-  const perReport = Math.floor(Math.min(4000, 12_000 / Math.max(1, reports.length)));
   const mine = specOf(team, n);
   const crit = mine.criteria;
-  const spec = (m: OfficeNode) => {
-    const x = specOf(team, m);
-    return [x.deliverable && `Deliverable: ${x.deliverable.slice(0, 300)}`, x.criteria.length && `Criteria: ${x.criteria.map((c) => c.slice(0, 160)).join('; ')}`]
-      .filter(Boolean)
-      .join('\n')
-      .slice(0, Math.max(200, Math.floor(4000 / Math.max(1, reports.length))));
-  };
+  // the whole prompt stays well under the launcher's 20k characters
+  const share = before.length && reports.length ? 6000 : 12_000;
   return [
-    `You are ${who(n)} in a team of coding agents working in this folder.`,
+    `You are ${whoOf(n)} in a team of coding agents working in this folder.`,
     team.goal.trim() ? `The team's goal:\n"""${team.goal.trim().slice(0, 3000)}"""` : '',
     ROLE_LINE[n.role],
-    chain.length ? `You report to ${chain.map(who).join(', who reports to ')}. ${chain[0].name}'s assignment: "${chain[0].task.trim().slice(0, 600)}"` : 'You are at the top of the team.',
+    chain.length ? `You report to ${chain.map(whoOf).join(', who reports to ')}. ${chain[0].name}'s assignment: "${chain[0].task.trim().slice(0, 600)}"` : 'You are at the top of the team.',
     mine.deliverable ? `What you hand to ${chain[0]?.name ?? 'the developer'} (your deliverable): ${mine.deliverable.slice(0, 600)}` : '',
     crit.length ? `It counts as delivered when:\n${crit.map((c) => `- ${c}`).join('\n')}` : '',
     chain.length && specOf(team, chain[0]).deliverable ? `It goes into ${chain[0].name}'s deliverable: ${specOf(team, chain[0]).deliverable!.slice(0, 400)}` : '',
@@ -550,15 +627,49 @@ export function nodePrompt(team: { goal: string } & Deliverables, n: OfficeNode,
     n.agent === 'claude'
       ? `Your permissions: ${n.grants.length ? n.grants.map((g) => GRANT_LINE[g]).join('; ') : 'read only'}. For anything else just go ahead and try it: the request goes to ${chain.length ? `your supervisor ${chain[0].name}` : 'the developer'}, who decides. If it is refused, work around it or say so in your report.`
       : `You may ${n.grants.some((g) => g === 'edit' || g === 'run') ? 'change files in this folder and run commands' : 'only read this folder'}.`,
+    before.length ? `You start after these desks have finished; build on what they handed over:\n\n${reportList(team, before, share, false)}` : '',
     reports.length
-      ? `Your team members have finished. Their reports:\n\n${reports
-          .map((r) => `### ${who(r.node)} — ${r.state === 'done' ? 'done' : r.state === 'skipped' ? 'did not run' : 'FAILED'}\n${spec(r.node) ? `${spec(r.node)}\n` : ''}${(r.report ?? '').trim().slice(0, perReport) || '(no report)'}`)
-          .join('\n\n')}\n\nBuild on their work; don't redo it. Check each delivery against its criteria (look at the files, run what proves it); fix small gaps yourself.`
+      ? `Your team members have finished. Their reports:\n\n${reportList(team, reports, share, true)}\n\nBuild on their work; don't redo it. Check each delivery against its criteria (look at the files, run what proves it); fix small gaps yourself.`
       : '',
+    reports.length ? SEND_BACK_LINE : '',
     'Others in the team work in the same folder at the same time: stay within your assignment.',
     `End with a short report for ${chain[0]?.name ?? 'the developer'}: what you did, which files changed, anything left open.`,
-    reports.length ? `In the report give your verdict on each delivery, one line per person: "ACCEPTED: <name>" or "REJECTED: <name> — what is still missing".` : '',
-    crit.length ? `Finish the report with your criteria as a checklist, in the order given: "- [x] <criterion>" when met, "- [ ] <criterion> — why not" when not.` : '',
+    reports.length ? VERDICT_ASK : '',
+    checklistLine(crit),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** A desk's delivery came back: what its supervisor still misses, and what the desks it goes after handed over since. Goes on in its own conversation. */
+export function redoPrompt(team: { goal: string } & Deliverables, n: OfficeNode, back: { by: string; note: string }, redo: number, before: DeskReport[] = []): string {
+  const chain = chainOf(team.nodes, n.id);
+  const crit = specOf(team, n).criteria;
+  const kids = childrenOf(team.nodes, n.id).length > 0;
+  return [
+    `${back.by} sent your delivery back to be redone (${redo} of at most ${MAX_REDOS}). What is still missing:\n"""${back.note.trim().slice(0, 2000) || '(no note: check your delivery against its criteria again)'}"""`,
+    before.length ? `The desks you go after have handed over again since:\n\n${reportList(team, before, 8000, false)}` : '',
+    "Fix what is missing; build on what you did instead of starting over. Stay within your assignment: others work in the same folder.",
+    kids ? `Your own people's work is in your earlier messages. If it is their part that falls short, reject it — ${SEND_BACK_LINE}` : '',
+    `End with a short report for ${chain[0]?.name ?? 'the developer'}: what you changed this time, which files, anything still open.`,
+    kids ? VERDICT_ASK : '',
+    checklistLine(crit),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** The people a supervisor sent back have redone their part: their new reports, to check again in its own conversation. */
+export function recheckPrompt(team: { goal: string } & Deliverables, n: OfficeNode, reports: DeskReport[]): string {
+  const chain = chainOf(team.nodes, n.id);
+  const crit = specOf(team, n).criteria;
+  return [
+    `The deliveries you sent back have been redone. The new reports:\n\n${reportList(team, reports, 12_000, true)}`,
+    'Check each against its criteria again (look at the files, run what proves it), then finish your own deliverable on top of them.',
+    SEND_BACK_LINE,
+    `End with your report for ${chain[0]?.name ?? 'the developer'}: what you did, which files changed, anything left open.`,
+    `${VERDICT_ASK} Give it for everyone in your team, not only the ones just redone.`,
+    checklistLine(crit),
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -659,26 +770,31 @@ export const ROLE_DIFFICULTY: Record<OfficeRole, number> = { lead: 4, manager: 3
 export const difficultyOf = (n: Pick<OfficeNode, 'difficulty' | 'role'>) => Math.min(5, Math.max(1, Math.round(n.difficulty ?? ROLE_DIFFICULTY[n.role])));
 const CLAUDE_BY_DIFFICULTY: Record<number, [string, string]> = { 1: ['haiku', 'low'], 2: ['haiku', 'medium'], 3: ['sonnet', 'medium'], 4: ['opus', 'high'], 5: ['opus', 'xhigh'] };
 const CODEX_BY_DIFFICULTY: Record<number, string> = { 1: 'low', 2: 'low', 3: 'medium', 4: 'high', 5: 'xhigh' };
-/** roles Codex does well (focused implementation, tests, terminal work) */
-const CODEX_ROLES: OfficeRole[] = ['engineer', 'tester'];
+/** roles Codex does well (focused implementation, tests, terminal work, and a second model family's look at the work) */
+const CODEX_ROLES: OfficeRole[] = ['engineer', 'tester', 'reviewer', 'researcher'];
 
 /**
  * Gives every desk a provider, model and effort from how hard its part is, what each
  * model is good at and how much of each weekly limit is left: the hardest parts and the
- * people in charge get the strong Claude models; implementation and tests go to Codex
- * when it has more room left this week; a provider that is nearly used up is avoided.
+ * people in charge get the strong Claude models; implementation, tests, reviews and
+ * research go to Codex — all of them when it has more room left this week, a share in
+ * line with its room otherwise; a provider that is nearly used up is avoided.
  */
 export function assignModels(nodes: OfficeNode[], ctx: { rates: Partial<Record<LaunchAgent, WeeklyRate>>; available: Record<LaunchAgent, boolean> }): OfficeNode[] {
   const room = (a: LaunchAgent) => (ctx.available[a] ? 100 - (ctx.rates[a]?.used ?? 0) : -1);
+  const leads = (n: OfficeNode) => childrenOf(nodes, n.id).length > 0;
+  // the desks Codex could take, its strongest suits (implementation, tests) and easier parts first
+  const suited = nodes
+    .filter((n) => CODEX_ROLES.includes(n.role) && !leads(n) && difficultyOf(n) <= 4)
+    .sort((a, b) => Number(CODEX_ROLES.indexOf(a.role) > 1) - Number(CODEX_ROLES.indexOf(b.role) > 1) || difficultyOf(a) - difficultyOf(b));
+  const [claude, codex] = [room('claude'), room('codex')];
+  const share = codex < 15 ? 0 : codex >= claude ? suited.length : Math.round((suited.length * codex) / (codex + Math.max(0, claude)));
+  const toCodex = new Set(suited.slice(0, share).map((n) => n.id));
   return nodes.map((n) => {
     const d = difficultyOf(n);
-    const leads = childrenOf(nodes, n.id).length > 0;
     let agent: LaunchAgent = 'claude';
-    if (room('claude') < 0) agent = 'codex';
-    else if (room('codex') >= 0) {
-      if (room('claude') < 15 && !(leads && d >= 4)) agent = 'codex';
-      else if (room('codex') >= 15 && CODEX_ROLES.includes(n.role) && !leads && d <= 4 && room('codex') >= room('claude')) agent = 'codex';
-    }
+    if (claude < 0) agent = 'codex';
+    else if (codex >= 0 && (toCodex.has(n.id) || (claude < 15 && !(leads(n) && d >= 4)))) agent = 'codex';
     if (agent === 'codex') return { ...n, agent, model: undefined, effort: CODEX_BY_DIFFICULTY[d], difficulty: d };
     const [model, effort] = CLAUDE_BY_DIFFICULTY[d];
     return { ...n, agent, model, effort, difficulty: d };

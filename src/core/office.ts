@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_GRANTS, OFFICE_GRANTS, OFFICE_ROLES, autoLayout, cascadeGrants, chainOf, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, specOf, usdToWeeklyPct, wouldCycle, type OfficeAsk, type OfficeGrant, type OfficeHelper, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeRunNode, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
+import { DEFAULT_GRANTS, MAX_REDOS, OFFICE_GRANTS, OFFICE_ROLES, autoLayout, cascadeGrants, chainOf, cleanAfter, waitsInRing, waitsOn, childrenOf, costPerToken, grantOf, newOfficeId, nodePrompt, normalizeView, parseChecks, parseVerdicts, recheckPrompt, redoPrompt, roughRate, specOf, usdToWeeklyPct, wouldCycle, type DeskReport, type OfficeAsk, type OfficeGrant, type OfficeHelper, type OfficeNode, type OfficeRole, type OfficeRun, type OfficeRunNode, type OfficeTeam, type OfficeView, type WeeklyRate } from '../shared/office';
 import type { LaunchAgent, LaunchPermission, TaskInfo } from '../shared/types';
 import { summarize, type Decision } from './permissions';
 import { dataDir } from './config';
@@ -57,6 +57,7 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
       ...(str(n?.why, 200).trim() ? { why: str(n.why, 200).trim() } : {}),
       ...(str(n?.deliverable, 300).trim() ? { deliverable: str(n.deliverable, 300).trim() } : {}),
       ...(criteriaOf(n?.criteria).length ? { criteria: criteriaOf(n.criteria) } : {}),
+      ...(Array.isArray(n?.after) ? { after: n.after.filter((a: unknown) => typeof a === 'string').slice(0, MAX_NODES) } : {}),
       x: Math.round(num(n?.x, 0, 6000, 24)),
       y: Math.round(num(n?.y, 0, 6000, 24)),
     });
@@ -79,7 +80,7 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
     ...(criteria.length ? { criteria } : {}),
     budget: Math.round(num(raw?.budget, 0.1, 10_000, 5) * 100) / 100,
     ...(cwd && path.isAbsolute(cwd) ? { cwd } : {}),
-    nodes: cascadeGrants(nodes),
+    nodes: cascadeGrants(cleanAfter(nodes)),
     updatedAt: now.toISOString(),
   };
 }
@@ -97,7 +98,8 @@ export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'e
     return [
       `${name}: ${Math.round(r.used)}% of its weekly limit used, ${Math.max(0, 100 - Math.round(r.used))}% left${r.resetsAt ? ` (resets ${r.resetsAt.slice(0, 16).replace('T', ' ')} UTC)` : ''}`,
       ...r.others.map((o) => `${o.label}: ${Math.round(o.used)}% used`),
-      one ? `$1 of work ≈ ${one.toFixed(2)}% of the ${name} week` : '',
+      // from little of this week's use the conversion is far off (a fresh week makes a provider look many times dearer)
+      one && !roughRate(r) ? `$1 of work ≈ ${one.toFixed(2)}% of the ${name} week` : '',
     ]
       .filter(Boolean)
       .join('; ');
@@ -112,18 +114,20 @@ export function planPrompt(goal: string, opts: { budget: number; lang: 'zh' | 'e
       'Step 2 — break the deliverable down. Split the final deliverable top-down into the sub-deliverables it is assembled from (e.g. a design note, each component\'s code change, a passing test suite and its output, docs), and those into smaller ones where needed: a tree of deliverables, at most 4 levels, 2-14 in all. Siblings must not overlap and together make up their parent. Each has 2-4 checkable "criteria" its receiver accepts it by.',
       'Step 3 — who makes each deliverable. Only now give every deliverable its maker: one agent per deliverable, reporting to the maker of the deliverable it goes into (the final deliverable\'s maker is the lead). A maker whose deliverable is assembled from 2 or more others is a manager (or the lead). Give each a short name, a role and a concrete assignment (1-3 sentences: how it produces its deliverable).',
       'Work flows bottom-up: the makers of the smallest deliverables run first (in parallel), then each supervisor receives its people\'s deliverables, checks them against their criteria and assembles its own.',
+      'Order: siblings run in parallel unless one builds on another\'s result — then give the later one "after": [keys of those it waits for] (e.g. the writer who revises from the reviews goes after the review manager; it gets their reports). Use it only where the order is real.',
+      `Iterating: a supervisor that rejects a delivery sends it back to its maker, who redoes it in its own conversation (up to ${MAX_REDOS} times each), and checks it again. So a loop like review → revise → review again needs no extra desks: plan each kind of work once, never a desk per round.`,
       'For every agent judge how hard its part is ("difficulty" 1-5: 1 routine edits / docs, 3 normal feature work, 5 research-level design or the hardest debugging) and choose provider, model and effort from that, from what each model is good at, and from how much weekly usage is left:',
       '- Claude fable: the strongest reasoning, for the very hardest open-ended design (expensive; has its own small weekly limit). opus: architecture, hard algorithms, integration, careful review, leading. sonnet: solid everyday implementation and review. haiku: simple edits, docs, formatting, quick checks.',
       '- Codex (GPT-5 class, leave "model" empty): strong at focused implementation, debugging, scripts, running and fixing tests, terminal work; it draws on the separate ChatGPT weekly limit.',
       '- Effort: low | medium | high | xhigh (claude also max, codex also minimal) — higher for harder parts, low for routine ones.',
       `- Weekly usage now. ${week('claude', 'Claude')} ${week('codex', 'Codex')}`,
-      '- Prefer the provider with more weekly room left for work both do well; never plan more than about half of what is left on either; leads and the hardest parts stay on the strongest model available.',
+      '- Weekly room decides who takes the work both do well (implementation, debugging, tests, reviews, research): put it on the provider with more room left, and when both have plenty, still give Codex its share — a second model family also reviews more independently. Never plan more than about half of what is left on either; leads and the hardest parts stay on the strongest model available.',
       `Budget for the whole team: about $${opts.budget} at API prices. Rough cost of one agent: opus/high ≈ $2.3, sonnet/medium ≈ $0.7, haiku/medium ≈ $0.3, codex/medium ≈ $0.3. Fit the team to it.`,
       `Agents available: ${agents}. Roles: ${OFFICE_ROLES.join(' | ')}.`,
       `Write names, assignments, deliverables, criteria and "why" in ${opts.lang === 'zh' ? 'Simplified Chinese' : 'English'}. Names are short (a role-like nickname). "why": one short sentence on why this provider / model / effort.`,
       'Reply with ONLY this JSON, no prose, no code fences:',
-      '{"name":"team name","deliverable":"the final deliverable","criteria":[""],"nodes":[{"key":"a1","parent":null,"deliverable":"","criteria":[""],"name":"","role":"lead","task":"","difficulty":4,"agent":"claude","model":"opus","effort":"high","why":""}]}',
-      '"parent" is the key of the supervisor (null for the lead). The lead\'s deliverable and criteria are the final ones.',
+      '{"name":"team name","deliverable":"the final deliverable","criteria":[""],"nodes":[{"key":"a1","parent":null,"deliverable":"","criteria":[""],"name":"","role":"lead","task":"","difficulty":4,"agent":"claude","model":"opus","effort":"high","why":"","after":[]}]}',
+      '"parent" is the key of the supervisor (null for the lead); "after" holds keys of desks outside its own line of supervisors and people. The lead\'s deliverable and criteria are the final ones.',
     ].join('\n'),
   ].join('\n\n');
 }
@@ -151,6 +155,7 @@ export function parsePlan(reply: string, goal: string, budget: number, now = new
     ...n,
     id: keyToId.get(String(n?.key ?? i)),
     parent: n?.parent != null ? keyToId.get(String(n.parent)) : undefined,
+    after: Array.isArray(n?.after) ? n.after.map((k: unknown) => keyToId.get(String(k))).filter(Boolean) : undefined,
     role: OFFICE_ROLES.includes(n?.role) ? (n.role as OfficeRole) : 'engineer',
     // every desk starts with every permission; the developer narrows them down if they want
     grants: undefined,
@@ -205,6 +210,8 @@ export function parseReview(reply: string): { allow: boolean; reason: string } |
 export interface OfficeHost {
   /** starts one desk as a background run; throws with status 429 when too many runs are going */
   start(req: { agent: LaunchAgent; cwd: string; prompt: string; model?: string; effort?: string; permission?: LaunchPermission }): { jobId: string; taskId: string };
+  /** goes on with a desk's own conversation (its task) with a new instruction; throws when it can't be continued */
+  resume?(req: { taskId: string; agent: LaunchAgent; prompt: string; model?: string; effort?: string; permission?: LaunchPermission }): { jobId: string; taskId: string };
   /** one headless question to a model (a supervisor reviewing a request); the reply text */
   judge(prompt: string, model: string): Promise<string>;
   stop(jobId: string): void;
@@ -352,16 +359,32 @@ export class Office {
       const node = run.nodes.find((n) => n.id === entry[0]);
       const crit = node ? specOf(run, node).criteria : [];
       if (crit.length) p.checks = parseChecks(full, crit);
-      if (node && p.state === 'done')
-        for (const [id, v] of Object.entries(parseVerdicts(full, childrenOf(run.nodes, node.id)))) {
-          const kp = run.progress[id];
-          if (kp) Object.assign(kp, { accepted: v.accepted, acceptNote: v.note });
-        }
+      if (node && p.state === 'done') this.judge(run, node, p, full);
       this.pump(run);
       this.save();
       this.notify();
       return;
     }
+  }
+
+  /**
+   * A supervisor's verdicts on its people. A rejected delivery goes back to its desk to be
+   * redone in its own conversation (at most MAX_REDOS times, and not past the budget); the
+   * supervisor then waits to check those again, instead of making up for them itself.
+   */
+  private judge(run: OfficeRun, node: OfficeNode, p: OfficeRunNode, report: string | undefined) {
+    const back: string[] = [];
+    const spentOut = run.spent >= run.budget && !run.resumedAt;
+    for (const [id, v] of Object.entries(parseVerdicts(report, childrenOf(run.nodes, node.id)))) {
+      const kp = run.progress[id];
+      if (!kp) continue;
+      Object.assign(kp, { accepted: v.accepted, acceptNote: v.note });
+      if (v.accepted || spentOut || (kp.redos ?? 0) >= MAX_REDOS || !['done', 'failed'].includes(kp.state)) continue;
+      Object.assign(kp, { state: 'waiting', redos: (kp.redos ?? 0) + 1, sentBack: { by: node.name, note: v.note ?? '' } });
+      delete kp.accepted;
+      back.push(id);
+    }
+    if (back.length) Object.assign(p, { state: 'waiting', recheck: back });
   }
 
   /** requests being reviewed, per desk and permission (a second ask waits for the same answer) */
@@ -545,8 +568,8 @@ export class Office {
   }
 
   /**
-   * Starts every waiting desk whose people have all finished; ends the run when no
-   * one is left. Whether anything changed.
+   * Starts every waiting desk whose people (and the desks it goes after) have all
+   * finished; ends the run when no one is left. Whether anything changed.
    */
   private pump(run: OfficeRun): boolean {
     if (run.state !== 'running' || !this.host) return false;
@@ -554,40 +577,27 @@ export class Office {
     const wasBusy = this.busy;
     this.busy = true;
     let changed = false;
+    const busy = (id: string) => ['waiting', 'running'].includes(run.progress[id]?.state);
     try {
-      for (const n of run.nodes) {
-        const p = run.progress[n.id];
-        if (p.state !== 'waiting') continue;
-        const kids = childrenOf(run.nodes, n.id);
-        if (kids.some((k) => ['waiting', 'running'].includes(run.progress[k.id]?.state))) continue;
-        if (!team?.cwd) {
-          Object.assign(p, { state: 'failed', error: 'the team has no folder', endedAt: new Date().toISOString() });
-          changed = true;
-          continue;
-        }
-        const prompt = nodePrompt({ goal: team.goal, nodes: run.nodes, deliverable: run.deliverable, criteria: run.criteria }, n, kids.map((k) => ({ node: k, state: run.progress[k.id].state, report: run.progress[k.id].report })));
-        // taken before it starts: the start itself publishes (and its job update comes back here)
-        p.state = 'running';
-        try {
-          // Claude desks ask for everything that needs approval (their permissions answer it here, or the
-          // request goes up the chain); Codex can't ask, so its sandbox follows its permissions
-          const permission: LaunchPermission = n.agent === 'claude' ? 'ask' : n.grants.some((g) => g === 'edit' || g === 'run') ? 'edits' : 'default';
-          const r = this.host.start({ agent: n.agent, cwd: team.cwd, prompt, model: n.model, effort: n.effort, permission });
-          Object.assign(p, { jobId: r.jobId, taskId: r.taskId, startedAt: new Date().toISOString() });
-          changed = true;
-        } catch (e) {
-          // too many background runs: try again on the next snapshot
-          if ((e as { status?: number }).status === 429) {
-            p.state = 'waiting';
+      const tryStart = (strict: boolean) => {
+        for (const n of run.nodes) {
+          const p = run.progress[n.id];
+          if (p.state !== 'waiting') continue;
+          // a ring of "goes after" (edited in by hand) must not hold the team up: then only the people count
+          if ((strict ? waitsOn(run.nodes, n.id) : childrenOf(run.nodes, n.id).map((k) => k.id)).some(busy)) continue;
+          if (!team?.cwd) {
+            Object.assign(p, { state: 'failed', error: 'the team has no folder', endedAt: new Date().toISOString() });
+            changed = true;
             continue;
           }
-          Object.assign(p, { state: 'failed', error: clip((e as Error).message, 300), endedAt: new Date().toISOString() });
-          changed = true;
+          if (this.startDesk(run, team as OfficeTeam & { cwd: string }, n, p)) changed = true;
         }
-      }
+      };
+      tryStart(true);
       const states = Object.values(run.progress).map((p) => p.state);
-      if (!states.some((s) => s === 'waiting' || s === 'running')) {
-        run.state = states.some((s) => s === 'failed') ? 'failed' : 'done';
+      if (!states.includes('running') && states.includes('waiting') && waitsInRing(run.nodes)) tryStart(false);
+      if (!Object.values(run.progress).some((p) => p.state === 'waiting' || p.state === 'running')) {
+        run.state = Object.values(run.progress).some((p) => p.state === 'failed') ? 'failed' : 'done';
         run.endedAt = new Date().toISOString();
         changed = true;
       }
@@ -595,5 +605,53 @@ export class Office {
       this.busy = wasBusy;
     }
     return changed;
+  }
+
+  /**
+   * One desk goes to work: a first run with its whole brief, or — sent back, or checking
+   * redone work again — on in its own conversation. Whether anything changed.
+   */
+  private startDesk(run: OfficeRun, team: OfficeTeam & { cwd: string }, n: OfficeNode, p: OfficeRunNode): boolean {
+    const host = this.host!;
+    const brief = { goal: team.goal, nodes: run.nodes, deliverable: run.deliverable, criteria: run.criteria };
+    const report = (id: string): DeskReport[] => {
+      const k = run.nodes.find((m) => m.id === id);
+      const kp = run.progress[id];
+      return k && kp ? [{ node: k, state: kp.state, report: kp.report, redos: kp.redos }] : [];
+    };
+    const kids = childrenOf(run.nodes, n.id).map((k) => k.id);
+    const before = waitsOn(run.nodes, n.id).filter((id) => !kids.includes(id)).flatMap(report);
+    const again = p.recheck?.length ? recheckPrompt(brief, n, p.recheck.flatMap(report)) : p.sentBack && p.redos ? redoPrompt(brief, n, p.sentBack, p.redos, before) : undefined;
+    // Claude desks ask for everything that needs approval (their permissions answer it here, or the
+    // request goes up the chain); Codex can't ask, so its sandbox follows its permissions
+    const permission: LaunchPermission = n.agent === 'claude' ? 'ask' : n.grants.some((g) => g === 'edit' || g === 'run') ? 'edits' : 'default';
+    const req = { agent: n.agent, model: n.model, effort: n.effort, permission };
+    // taken before it starts: the start itself publishes (and its job update comes back here)
+    p.state = 'running';
+    try {
+      let r: { jobId: string; taskId: string } | undefined;
+      if (again && p.taskId && host.resume) {
+        try {
+          r = host.resume({ ...req, taskId: p.taskId, prompt: again });
+        } catch (e) {
+          if ((e as { status?: number }).status === 429) throw e;
+          // its conversation can't be continued: a fresh run with the whole brief below
+        }
+      }
+      const resumed = !!r;
+      r ??= host.start({ ...req, cwd: team.cwd, prompt: [nodePrompt(brief, n, kids.flatMap(report), before), again].filter(Boolean).join('\n\n') });
+      Object.assign(p, { jobId: r.jobId, taskId: r.taskId, startedAt: new Date().toISOString(), ...(again ? { round: (p.round ?? 1) + 1 } : {}) });
+      if (!resumed) delete p.sessionId;
+      for (const k of ['endedAt', 'error', 'verb', 'doing', 'checks', 'recheck'] as const) delete p[k];
+      return true;
+    } catch (e) {
+      // too many background runs: try again on the next snapshot
+      if ((e as { status?: number }).status === 429) {
+        p.state = 'waiting';
+        return false;
+      }
+      Object.assign(p, { state: 'failed', error: clip((e as Error).message, 300), endedAt: new Date().toISOString() });
+      return true;
+    }
   }
 }

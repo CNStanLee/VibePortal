@@ -1,7 +1,7 @@
 import { calendarEvents, RESET_POSTS, resetOutlook } from '../shared/resets';
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
-import { buyBait, cast, claimAd, reel, sellCrop, sellFish, startAd, takeRod, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
+import { buyBait, cast, claimAd, reel, sellCrop, sellDuplicates, sellFish, startAd, takeRod, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
 import { DEFAULT_GRANTS, autoLayout, cascadeGrants, childrenOf, specOf, costPerToken, estimateNode, newOfficeId, type OfficeNode, type OfficeRun, type OfficeTeam, type OfficeView } from '../shared/office';
 import { cleanProfile, publicFarm, type FarmProfile, type FarmSocialView, type FriendFarm, type PublicFarm } from '../shared/farmSocial';
 import type {
@@ -488,6 +488,7 @@ function demoFarmCall(p: string, body: unknown): unknown {
     f.stored.push(
       { id: 'demo-crop-5', species: 'tulip', rarity: 'common', color: 'yellow', harvestedAt: now - 3 * 86400_000 },
       { id: 'demo-crop-6', species: 'daisy', rarity: 'common', color: 'white', harvestedAt: now - 3 * 86400_000 },
+      { id: 'demo-crop-7', species: 'tulip', rarity: 'common', color: 'yellow', harvestedAt: now - 2 * 86400_000 },
     );
     f.seeds.push({ id: 'demo-seed-mythic', species: 'moonflower', rarity: 'mythic', color: 'white' });
     // a morning at the pond
@@ -522,6 +523,7 @@ function demoFarmCall(p: string, body: unknown): unknown {
   else if (action === 'display') displayCrop(s, String(b.cropId));
   else if (action === 'discard') discardCrop(s, String(b.cropId));
   else if (action === 'sell') result = sellCrop(s, String(b.cropId));
+  else if (action === 'sell-dupes') result = sellDuplicates(s);
   else if (action === 'sell-fish') result = sellFish(s, Array.isArray(b.ids) ? b.ids.map(String) : undefined);
   else if (action === 'rod') takeRod(s, String(b.rod));
   else if (action === 'bait') buyBait(s, Number(b.packs) || 1);
@@ -655,6 +657,8 @@ function demoTeam(goal?: string, id = 'demo-team'): OfficeTeam {
   ];
   // the styles engineer starts without "run commands": it will ask for it
   nodes[2].grants = ['edit'];
+  // the changelog is written once the tests have run
+  nodes[5].after = ['test'];
   // what each desk hands up, and what it is accepted by
   const handoffs: Record<string, [string, string[]]> = zh
     ? {

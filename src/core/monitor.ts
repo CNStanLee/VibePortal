@@ -105,6 +105,14 @@ export class Monitor extends EventEmitter {
     this.loadFollowUps();
     this.office.attach({
       start: (req) => this.startTask(req),
+      resume: (req) => {
+        const task = this.findTask(req.taskId);
+        if (!task) throw httpError(404, 'the desk’s conversation is gone');
+        const r = this.continueTask(task, req.prompt, cleanRunOptions(req.agent, req));
+        // still busy (not a finished desk's run): no queued instructions for a desk
+        if (r.queued) throw httpError(409, 'the desk’s run is still going');
+        return { jobId: r.jobId, taskId: `dispatch:${r.jobId}` };
+      },
       stop: (jobId) => this.actions.stop(jobId),
       report: (taskId) => {
         const t = this.findTask(taskId);
@@ -676,11 +684,10 @@ export class Monitor extends EventEmitter {
     if (running.length) {
       return { mood: 'working', message: running.length === 1 ? `Working on ${running[0].title}` : `${running.length} tasks running` };
     }
-    const exhausting = quotas.find(({ q }) => q.forecast?.willExhaustBeforeReset);
+    // only worry once a window is past the warning line and on pace to run out: a fresh weekly
+    // window's early pace (9% in 3 h) or a high one that will last till its reset is no cause to shiver
+    const exhausting = quotas.find(({ q }) => q.severity === 'warning' && q.forecast?.willExhaustBeforeReset);
     if (exhausting) return { mood: 'alert', message: `${exhausting.p.name} ${exhausting.q.label} may run out before reset` };
-    if (worst && worst.q.severity === 'warning') {
-      return { mood: 'alert', message: `${worst.p.name} ${worst.q.label}: ${Math.round(worst.q.percent)}%` };
-    }
     const lastActivity = Math.max(0, ...tasks.map((t) => Date.parse(t.updatedAt)));
     const summary = providers
       .filter((p) => p.quotas.length)

@@ -412,6 +412,26 @@ export function sellCrop(s: FarmState, cropId: string): number {
   return price;
 }
 
+/** The plants you have another just like (species, quality, colour and mutation): all but one of each, the showcase's copy kept first. */
+export function duplicateCrops(s: Pick<FarmState, 'crops' | 'stored'>): Crop[] {
+  const seen = new Set<string>();
+  return allCrops(s).filter((c) => {
+    const k = `${c.species}|${c.rarity}|${c.color}|${c.mutated ? 1 : 0}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      return false;
+    }
+    return true;
+  });
+}
+
+/** Sells every duplicate at once (one of each kind stays); what they brought in. */
+export function sellDuplicates(s: FarmState): number {
+  const dupes = duplicateCrops(s);
+  if (!dupes.length) throw new FarmError('no duplicate plants to sell');
+  return dupes.reduce((n, c) => n + sellCrop(s, c.id), 0);
+}
+
 // ── the pond: cast, wait for the bite, reel in ─────────────────────────────
 /** Today's allowances (they start over at local midnight). */
 function pondToday(s: FarmState, now: number): PondState {

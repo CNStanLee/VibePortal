@@ -227,7 +227,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       if (p === '/api/snapshot' && req.method === 'GET') return json(res, 200, monitor.current() ?? null);
       // ── the crab farm ──
       if (p === '/api/farm' && req.method === 'GET') return json(res, 200, farm.view(monitor.current()?.providers));
-      const fm = /^\/api\/farm\/(draw|plant|harvest|uproot|store|display|discard|sell|sell-fish|rod|bait|cast|reel|ad|ad-claim)$/.exec(p);
+      const fm = /^\/api\/farm\/(draw|plant|harvest|uproot|store|display|discard|sell|sell-dupes|sell-fish|rod|bait|cast|reel|ad|ad-claim)$/.exec(p);
       if (fm && req.method === 'POST') return json(res, 200, farm.act(fm[1], await readJson(req), monitor.current()?.providers));
       if (p === '/api/farm/social') {
         if (req.method === 'POST') social.update(await readJson(req));

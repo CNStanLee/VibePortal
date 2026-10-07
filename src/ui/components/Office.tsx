@@ -21,6 +21,8 @@ import {
   undelivered,
   EFFORT_LADDER,
   assignModels,
+  canGoAfter,
+  MAX_REDOS,
   difficultyOf,
   effortLevel,
   effortSpan,
@@ -789,6 +791,22 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
             <div style={{ width: W * zoom, height: H * zoom }}>
               <div className="office-plane" ref={planeRef} style={{ width: W, height: H, transform: `scale(${zoom})` }}>
                 <svg className="office-edges" width={W} height={H} aria-hidden>
+                  <defs>
+                    <marker id="office-after-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                      <path d="M0 0 L10 5 L0 10 z" className="after-arrow" />
+                    </marker>
+                  </defs>
+                  {/* "goes after": a dashed arrow from the desk it waits for, side to side */}
+                  {nodes.flatMap((n) =>
+                    (n.after ?? []).flatMap((id) => {
+                      const f = byId.get(id);
+                      if (!f) return [];
+                      const fwd = f.x <= n.x;
+                      const [x1, y1, x2, y2] = [fwd ? f.x + DESK_W : f.x, f.y + DESK_H / 2, fwd ? n.x : n.x + DESK_W, n.y + DESK_H / 2];
+                      const mx = (x1 + x2) / 2;
+                      return [<path key={`after-${id}-${n.id}`} className={`after-edge st-${progress[id]?.state ?? 'none'}`} d={`M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`} markerEnd="url(#office-after-arrow)" />];
+                    }),
+                  )}
                   {edges.map(({ c, d }) => {
                     const st = progress[c.id]?.state;
                     return (
@@ -1106,6 +1124,11 @@ function Desk({
             ↻{prog!.round}
           </span>
         )}
+        {!!prog?.redos && (
+          <span className="desk-round sent-back" title={fmt(t.officeSentBackTimes, { n: prog.redos, max: MAX_REDOS })}>
+            ↩{prog.redos}
+          </span>
+        )}
       </div>
       <div className="desk-grants" aria-label={t.officePerms}>
         {/* during a run: what it holds now (handed-down ones marked); otherwise what it is set to */}
@@ -1296,6 +1319,35 @@ function NodeEditor({
             ))}
           </select>
         </label>
+        {nodes.length > 2 && (
+          <div>
+            <span className="nt-label" title={t.officeAfterHelp}>
+              ⏭ {t.officeAfter}
+            </span>
+            <div className="office-grants">
+              {nodes
+                .filter((n) => node.after?.includes(n.id) || canGoAfter(nodes, node.id, n.id))
+                .map((n) => {
+                  const on = !!node.after?.includes(n.id);
+                  return (
+                    <button
+                      key={n.id}
+                      type="button"
+                      className={`grant-chip ${on ? 'on' : ''}`}
+                      aria-pressed={on}
+                      onClick={() => {
+                        const after = on ? (node.after ?? []).filter((x) => x !== n.id) : [...(node.after ?? []), n.id];
+                        onChange({ after: after.length ? after : undefined });
+                      }}
+                    >
+                      {ROLE_ICON[n.role]} {n.name}
+                    </button>
+                  );
+                })}
+            </div>
+            <p className="muted tiny">{t.officeAfterHelp}</p>
+          </div>
+        )}
         <div>
           <span className="nt-label" title={t.officePermsHelp}>
             {t.officePerms}
@@ -1352,6 +1404,15 @@ function NodeEditor({
             </span>
           ) : null}
           {prog.error && <div className="action-msg">{prog.error}</div>}
+          {prog.sentBack && (
+            <div className="office-sent-back">
+              ↩ {fmt(t.officeSentBack, { name: prog.sentBack.by, n: prog.redos ?? 1, max: MAX_REDOS })}
+              {prog.sentBack.note && <span className="muted"> “{prog.sentBack.note}”</span>}
+            </div>
+          )}
+          {!!prog.recheck?.length && prog.state === 'waiting' && (
+            <div className="office-sent-back">🔁 {fmt(t.officeRecheck, { names: prog.recheck.map((id) => nodes.find((n) => n.id === id)?.name ?? '?').join(', ') })}</div>
+          )}
           {asks.map((a) => (
             <PermissionAsk key={a.id} ask={a} />
           ))}

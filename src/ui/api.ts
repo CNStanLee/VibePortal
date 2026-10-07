@@ -3,7 +3,7 @@ import { demoCall, demoSnapshot, isDemo } from './demo';
 import type { ResetCalendarView } from '../shared/resets';
 import type { FarmView } from '../shared/farm';
 
-export type FarmAction = 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard' | 'sell' | 'sell-fish' | 'rod' | 'bait' | 'cast' | 'reel' | 'ad' | 'ad-claim';
+export type FarmAction = 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard' | 'sell' | 'sell-dupes' | 'sell-fish' | 'rod' | 'bait' | 'cast' | 'reel' | 'ad' | 'ad-claim';
 import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
 import type { OfficeRun, OfficeTeam, OfficeView } from '../shared/office';
 import type { GitRepositories, LaunchAgentInfo, LaunchProject, LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';

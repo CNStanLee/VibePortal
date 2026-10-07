@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, allCrops, colorsFor, cropPrice, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
+import { MULTI_DRAW, PITY, RARITIES, RARITY_ODDS, SPECIES, allCrops, colorsFor, cropPrice, duplicateCrops, speciesOf, stageOf, type Crop, type FarmView, type Rarity, type Seed, type SeedColor } from '../../shared/farm';
 import { api } from '../api';
 import { fmt, useT } from '../i18n';
 import { fmtDuration, fmtTokens } from '../format';
@@ -97,7 +97,7 @@ export function FarmPage() {
       setFarm(r.farm);
       setNow(Date.now());
       // what a sale or an ad brought in
-      if ((action === 'sell' || action === 'sell-fish' || action === 'ad-claim') && typeof r.result === 'number') setToast(fmt(t.farmEarnedNow, { n: fmtTokens(r.result) }));
+      if ((action === 'sell' || action === 'sell-dupes' || action === 'sell-fish' || action === 'ad-claim') && typeof r.result === 'number') setToast(fmt(t.farmEarnedNow, { n: fmtTokens(r.result) }));
       return r.result;
     } catch (e) {
       setError((e as Error).message);
@@ -246,7 +246,7 @@ export function FarmPage() {
       <PondSection farm={farm} act={act} busy={busy} rarityName={(r) => RARITY_NAME[r][lang]} />
 
       <section className="card">
-        <header className="card-head">
+        <header className="card-head farm-shelf-head">
           <div className="seg" role="tablist">
             <button role="tab" aria-selected={view === 'showcase'} onClick={() => setView('showcase')}>
               🏺 {t.farmShowcase} <span className="muted">{farm.crops.length}</span>
@@ -258,6 +258,22 @@ export function FarmPage() {
               📖 {t.farmDex}
             </button>
           </div>
+          {(() => {
+            // one of each kind stays: the rest sells in one go
+            const dupes = duplicateCrops(farm);
+            const total = dupes.reduce((n, c) => n + cropPrice(c), 0);
+            return (
+              <button
+                className="btn"
+                disabled={busy || !dupes.length}
+                title={t.farmSellDupesHelp}
+                onClick={() => window.confirm(fmt(t.farmSellDupesAsk, { n: dupes.length, tokens: fmtTokens(total) })) && void act('sell-dupes', {})}
+              >
+                💰 {t.farmSellDupes}
+                {dupes.length > 0 && <span className="muted"> {dupes.length} · {fmtTokens(total)}</span>}
+              </button>
+            );
+          })()}
         </header>
         {view === 'showcase' ? (
           <Showcase crops={farm.crops} empty={t.farmShowcaseEmpty} lang={lang} onOpen={setShown} />
