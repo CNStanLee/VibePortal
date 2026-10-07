@@ -50,6 +50,38 @@ test('recent repositories include accessible org repos and sort by latest push',
   assert.equal(result.repositories[1].description, 'Old work');
 });
 
+test('without gh, the token git stores for github.com lists the repositories', async () => {
+  const calls: string[] = [];
+  const result = await recentRepositories(
+    async (bin, args, _timeout, input) => {
+      calls.push(`${bin} ${args[0]}`);
+      if (bin === 'gh') throw new Error('gh: command not found');
+      assert.deepEqual(args, ['credential', 'fill']);
+      assert.match(input ?? '', /host=github\.com/);
+      return 'protocol=https\nhost=github.com\nusername=me\npassword=gho_secret\n';
+    },
+    async (token, apiPath) => {
+      assert.equal(token, 'gho_secret');
+      assert.ok(apiPath.startsWith('user/repos?sort=pushed'));
+      return [{ full_name: 'me/app', private: true, pushed_at: '2026-10-01T00:00:00Z' }];
+    },
+  );
+  assert.deepEqual(calls, ['gh api', 'git credential']);
+  assert.deepEqual(result, { state: 'ready', repositories: [{ fullName: 'me/app', description: '', private: true, pushedAt: '2026-10-01T00:00:00Z' }] });
+});
+
+test('a clone falls back to the GitHub CLI when git cannot fetch', async () => {
+  const parent = path.join(temp, 'fallback');
+  const bins: string[] = [];
+  const result = await cloneRepository('acme/web', parent, async (bin) => {
+    bins.push(bin);
+    if (bin === 'git') throw new Error('Authentication failed');
+    return '';
+  });
+  assert.deepEqual(bins, ['git', 'gh']);
+  assert.equal(result.path, path.join(parent, 'web'));
+});
+
 test('missing gh, authentication/network failure, and malformed data leave local selection usable', async () => {
   for (const response of [null, 'invalid json', '{}']) {
     const result = await recentRepositories(async () => { if (response === null) throw new Error('unavailable'); return response; });
@@ -63,8 +95,8 @@ test('clone creates a real working tree under the configured parent and becomes 
   await git(['init', '--bare', source]);
   const parent = path.join(temp, 'projects with spaces');
   const run: RepositoryCommand = async (bin, args) => {
-    assert.equal(bin, 'gh');
-    assert.deepEqual(args.slice(0, 3), ['repo', 'clone', 'https://github.com/acme/web.git']);
+    assert.equal(bin, 'git');
+    assert.deepEqual(args.slice(0, 3), ['clone', '--', 'https://github.com/acme/web.git']);
     assert.equal(args[3], path.join(parent, 'web'));
     await git(['clone', source, args[3]]);
     await git(['-C', args[3], 'remote', 'set-url', 'origin', 'https://github.com/acme/web.git']);
