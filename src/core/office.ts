@@ -68,7 +68,7 @@ export function cleanTeam(raw: any, now = new Date()): OfficeTeam {
     delete n.parent;
     if (p !== n.id && ids.has(p) && !wouldCycle(nodes, n.id, p)) n.parent = p;
   }
-  const cwd = str(raw?.cwd, 1000);
+  const cwd = str(raw?.cwd, 1000).trim();
   const deliverable = str(raw?.deliverable, 600).trim();
   const criteria = criteriaOf(raw?.criteria);
   return {
@@ -259,6 +259,9 @@ export class Office {
   }
 
   saveTeam(raw: any): OfficeTeam {
+    if (typeof raw?.cwd === 'string' && raw.cwd.trim() && (!path.isAbsolute(raw.cwd.trim()) || raw.cwd.includes('\0'))) {
+      throw Object.assign(new Error('use an absolute folder path'), { status: 400 });
+    }
     const team = cleanTeam(raw);
     const i = this.data.teams.findIndex((t) => t.id === team.id);
     if (i >= 0) this.data.teams[i] = team;
@@ -278,8 +281,16 @@ export class Office {
     const team = this.data.teams.find((t) => t.id === teamId);
     if (!team) throw Object.assign(new Error('no such team'), { status: 404 });
     if (!team.nodes.length) throw Object.assign(new Error('the team has no one in it yet'), { status: 400 });
-    if (!team.cwd || !cwdOk(team.cwd)) throw Object.assign(new Error('pick the folder the team works in first'), { status: 400 });
     if (this.data.runs.some((r) => r.teamId === teamId && r.state === 'running')) throw Object.assign(new Error('this team is already at work'), { status: 409 });
+    // An empty choice means a new, isolated workspace, created only on first run.
+    if (!team.cwd) {
+      const root = path.join(dataDir(), 'workspaces');
+      fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+      team.cwd = fs.mkdtempSync(path.join(root, `${team.id}-`));
+      team.updatedAt = new Date().toISOString();
+      this.save();
+    }
+    if (!cwdOk(team.cwd)) throw Object.assign(new Error('the selected folder does not exist or is not accessible'), { status: 400 });
     const run: OfficeRun = {
       id: newOfficeId('r'),
       teamId,

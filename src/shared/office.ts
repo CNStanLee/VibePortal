@@ -60,7 +60,7 @@ export interface OfficeTeam {
   criteria?: string[];
   /** the whole task package may spend at most this much (USD, API-equivalent) */
   budget: number;
-  /** the folder every agent works in */
+  /** the folder every agent works in; omitted = create an isolated workspace on first run */
   cwd?: string;
   nodes: OfficeNode[];
   updatedAt: string;

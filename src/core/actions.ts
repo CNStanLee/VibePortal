@@ -457,8 +457,8 @@ export class ActionRunner {
       // resuming writes to the same session; a fork gets a new id we find by pid
     } else if (task.kind === 'codex' || task.kind === 'dispatch') {
       bin = resolveBin('codex', bins.codexBin);
-      // `exec resume` takes -m / -c after the subcommand and has no --sandbox (the session keeps its own)
-      args = ['exec', 'resume', ...codexRunArgs({ ...run, permission: undefined }), sessionId, '-'];
+      // --sandbox belongs to `exec`, so run options must precede the `resume` subcommand.
+      args = ['exec', ...codexRunArgs(run), 'resume', sessionId, '-'];
     } else throw httpError(400, 'This task cannot be continued');
     if (!bin) throw httpError(501, `${task.kind === 'codex' ? 'Codex' : 'Claude Code'} CLI not found`);
     const agent = task.kind === 'codex' || (task.kind === 'dispatch' && agentOf(task) === 'codex') ? 'codex' : 'claude';

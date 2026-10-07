@@ -116,7 +116,7 @@ let jobSeq = 0;
 
 /** A host that records what it was asked to start and lets the test finish runs. */
 function fakeHost(opts: { limit?: number; verdict?: string; report?: (taskId: string) => string | undefined } = {}) {
-  const started: { jobId: string; prompt: string; agent: string }[] = [];
+  const started: { jobId: string; prompt: string; agent: string; cwd: string }[] = [];
   const running = new Set<string>();
   let office: Office;
   const host: OfficeHost & { started: typeof started; finish(i: number, state?: 'done' | 'failed'): void; stopped: string[]; judged: { prompt: string; model: string }[] } = {
@@ -126,7 +126,7 @@ function fakeHost(opts: { limit?: number; verdict?: string; report?: (taskId: st
       if (running.size >= (opts.limit ?? 3)) throw Object.assign(new Error('Too many'), { status: 429 });
       const jobId = `j${++jobSeq}`;
       running.add(jobId);
-      started.push({ jobId, prompt: req.prompt, agent: req.agent });
+      started.push({ jobId, prompt: req.prompt, agent: req.agent, cwd: req.cwd });
       // like the real runner: the start publishes, which observes the office again
       office.observe([]);
       office.onJob({ id: jobId, state: 'running' });
@@ -203,7 +203,31 @@ test('office: a run stops everything once the budget is spent', () => {
   assert.equal(run.progress.lead.state, 'skipped');
   assert.equal(run.progress.a.error, 'over budget');
   assert.throws(() => office.startRun('nope', () => true), /no such team/);
-  assert.throws(() => office.startRun(office.saveTeam({ name: 'X', nodes: [node('a')] }).id, () => true), /folder/);
+  assert.throws(() => office.startRun(office.saveTeam({ name: 'X', cwd: path.join(home, 'missing'), nodes: [node('a')] }).id, () => false), /folder/);
+});
+
+test('office: default workspaces are created on first run, isolated, persisted and reused', () => {
+  const office = new Office();
+  const { host, bind } = fakeHost();
+  bind(office);
+  office.attach(host);
+  const team = office.saveTeam({ name: '../Untitled', nodes: [node('dev')] });
+  assert.equal(team.cwd, undefined);
+  const run = office.startRun(team.id, (p) => fs.statSync(p).isDirectory());
+  assert.ok(team.cwd!.startsWith(path.join(home, 'workspaces') + path.sep));
+  assert.equal(host.started[0].cwd, team.cwd);
+  assert.equal(new Office().view().teams.find((t) => t.id === team.id)?.cwd, team.cwd);
+  office.stopRun(run.id);
+  const cwd = team.cwd;
+  office.startRun(team.id, (p) => fs.statSync(p).isDirectory());
+  assert.equal(team.cwd, cwd);
+  const second = office.saveTeam({ name: team.name, nodes: [node('dev')] });
+  office.startRun(second.id, (p) => fs.statSync(p).isDirectory());
+  assert.notEqual(second.cwd, cwd);
+  assert.throws(() => office.saveTeam({ cwd: 'relative/path' }), /absolute/);
+  const invalid = office.saveTeam({ cwd: path.join(home, 'missing-explicit'), nodes: [node('dev')] });
+  assert.throws(() => office.startRun(invalid.id, () => false), /folder/);
+  assert.equal(fs.existsSync(invalid.cwd!), false, 'an explicit invalid repo is never silently replaced');
 });
 
 test('office: permissions — which one a tool needs, and a desk holds only what its supervisor holds', () => {

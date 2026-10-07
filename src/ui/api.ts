@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { demoCall, demoSnapshot, isDemo } from './demo';
+import type { ResetCalendarView } from '../shared/resets';
 import type { FarmView } from '../shared/farm';
 
 export type FarmAction = 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard' | 'sell' | 'sell-fish' | 'rod' | 'bait' | 'cast' | 'reel' | 'ad' | 'ad-claim';
@@ -222,6 +223,9 @@ export const api = {
   farmFriendAdd: (link: string) => call<FriendFarm[]>('POST', 'api/farm/friends', { link }),
   farmFriendRemove: (url: string) => call<FriendFarm[]>('DELETE', 'api/farm/friends', { url }),
   farmFriendWater: (url: string) => call<{ friend: FriendFarm; result: unknown }>('POST', 'api/farm/friends/water', { url }),
+  resets: () => call<ResetCalendarView>('GET', 'api/resets'),
+  refreshResets: () => call<ResetCalendarView>('POST', 'api/resets/refresh', {}),
+  importResetPost: (url: string) => call<ResetCalendarView>('POST', 'api/resets/posts', { url }),
   office: () => call<OfficeView>('GET', 'api/office'),
   officeSave: (team: OfficeTeam) => call<OfficeTeam>('POST', 'api/office/teams', team),
   officeDelete: (id: string) => call<{ ok: boolean }>('DELETE', `api/office/teams/${encodeURIComponent(id)}`),

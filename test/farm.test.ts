@@ -20,7 +20,21 @@ test('farm: tokens buy draws, counted per day from the first day on, never shrin
   creditUsage(f, [{ date: '2026-10-05', tokens: 100 }]);
   const v = farmView(f);
   assert.equal(v.earnedTokens, 1_200_000);
-  assert.equal(v.drawsAvailable, WELCOME_DRAWS + 2);
+  assert.equal(v.drawsAvailable, WELCOME_DRAWS + 3);
+});
+
+test('farm: cheaper seeds preserve legacy balances and do not reprice past spending', () => {
+  const { welcomeTokens: _, ...legacy } = newFarm('2026-10-05');
+  legacy.days['2026-10-05'] = 1_000_000;
+  legacy.spentTokens = 2_000_000;
+  legacy.draws = 4;
+  const migrated = normalizeFarm(legacy, '2026-10-07');
+  assert.equal(farmView(migrated).balance, 500_000);
+  draw(migrated, 1, () => 0);
+  assert.equal(farmView(migrated).balance, 100_000);
+  assert.equal(migrated.spentTokens, 2_400_000);
+  assert.equal(farmView(normalizeFarm(JSON.parse(JSON.stringify(migrated)), '2026-10-08')).balance, 100_000);
+  assert.equal(farmView(newFarm('2026-10-07')).drawsAvailable, 3);
 });
 
 test('farm: drawing spends tokens; a ten-draw holds a rare; pity guarantees a legendary', () => {

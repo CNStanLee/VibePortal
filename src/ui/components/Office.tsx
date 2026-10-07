@@ -147,10 +147,11 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   const planeRef = useRef<HTMLDivElement>(null);
   const floorRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | undefined>(undefined);
+  const pendingSave = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     api.office().then((v) => setView(normalizeView(v))).catch((e) => setError((e as Error).message));
-    cachedLaunchOptions().then(setOpts).catch(() => {});
+    cachedLaunchOptions().then(setOpts).catch((e) => setError((e as Error).message));
   }, []);
 
   const teams = view?.teams ?? [];
@@ -213,7 +214,11 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     setTeamId(next.id);
     if (save === 'later') return;
     window.clearTimeout(saveTimer.current);
-    const go = () => api.officeSave(teamRef.current!).catch((e) => setError((e as Error).message));
+    // Save the edited team, even if another tab becomes selected before the timer fires.
+    const go = () => {
+      pendingSave.current = pendingSave.current.catch(() => {}).then(() => api.officeSave(next));
+      void pendingSave.current.catch((e) => setError((e as Error).message));
+    };
     if (save === 'now') void go();
     else saveTimer.current = window.setTimeout(go, 600);
   };
@@ -367,6 +372,8 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     setBusy('plan');
     setError('');
     try {
+      window.clearTimeout(saveTimer.current);
+      await pendingSave.current.catch(() => {});
       const next = await api.officePlan({ id: team.id, goal: team.goal, deliverable: team.deliverable, criteria: team.criteria, budget: team.budget, lang, cwd: team.cwd, model: planner.model, ...(planner.effort ? { effort: planner.effort } : {}) });
       teamRef.current = next;
       setView((v) => ({ runs: v?.runs ?? [], teams: [...(v?.teams ?? []).filter((x) => x.id !== next.id), next] }));
@@ -385,9 +392,10 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     setError('');
     try {
       window.clearTimeout(saveTimer.current);
+      await pendingSave.current.catch(() => {});
       await api.officeSave(team);
-      const r = await api.officeRun(team.id);
-      setView((v) => (v ? { ...v, runs: [...v.runs.filter((x) => x.id !== r.id), r] } : v));
+      await api.officeRun(team.id);
+      setView(normalizeView(await api.office()));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -456,9 +464,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     ? t.officeNeedNodes
     : missing.length
       ? fmt(t.officeNeedDeliverables, { names: missing.map((n) => n.name).join(lang === 'zh' ? '、' : ', ') })
-      : !team.cwd
-        ? t.officeNeedFolder
-        : !(opts?.agents.claude.available ?? true) && nodes.some((n) => n.agent === 'claude') ? `Claude Code ${t.cliMissing}` : !(opts?.agents.codex.available ?? true) && nodes.some((n) => n.agent === 'codex') ? `Codex ${t.cliMissing}` : '';
+      : !(opts?.agents.claude.available ?? true) && nodes.some((n) => n.agent === 'claude') ? `Claude Code ${t.cliMissing}` : !(opts?.agents.codex.available ?? true) && nodes.some((n) => n.agent === 'codex') ? `Codex ${t.cliMissing}` : '';
   const teamList = teams.some((x) => x.id === team.id) ? teams : [...teams, team];
 
   return (
@@ -579,17 +585,17 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
               <span className="nt-label">{t.officeTeamName}</span>
               <input value={team.name} disabled={locked} onChange={(e) => update((x) => ({ ...x, name: e.target.value }))} />
             </label>
-            <label>
-              <span className="nt-label">{t.officeFolder}</span>
-              <input list="office-folders" value={team.cwd ?? ''} disabled={locked} placeholder={t.officeFolderPh} spellCheck={false} onChange={(e) => update((x) => ({ ...x, cwd: e.target.value.trim() || undefined }))} />
-              <datalist id="office-folders">
-                {opts?.projects.map((p) => (
-                  <option key={p.path} value={p.path}>
-                    {p.name}
-                  </option>
-                ))}
-              </datalist>
-            </label>
+            <div className="office-workspace">
+              <label htmlFor="office-repo" className="nt-label">{t.officeFolder}</label>
+              <select id="office-repo" value={team.cwd || ''} disabled={locked || !!busy} onChange={(e) => update((x) => ({ ...x, cwd: e.target.value || undefined }))}>
+                <option value="">{t.officeAutoFolder}</option>
+                {team.cwd && !opts?.projects.some((p) => p.path === team.cwd) && <option value={team.cwd}>{team.cwd}</option>}
+                {opts?.projects.map((p) => <option key={p.path} value={p.path}>{p.git ? '⎇ ' : ''}{p.name} · {p.path}</option>)}
+              </select>
+              <label className="nt-label" htmlFor="office-path">{t.officeCustomFolder}</label>
+              <input id="office-path" value={team.cwd ?? ''} disabled={locked || !!busy} placeholder={t.officeFolderPh} spellCheck={false} onChange={(e) => update((x) => ({ ...x, cwd: e.target.value || undefined }))} />
+              <p className="muted tiny">{team.cwd ? t.officeExistingHelp : t.officeAutoHelp}</p>
+            </div>
             <label>
               <span className="nt-label">{t.officePerms}</span>
               <select

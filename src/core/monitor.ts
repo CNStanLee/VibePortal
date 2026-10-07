@@ -1,5 +1,6 @@
 import { TaskArchive } from './archive';
 import { SkillGraphStore } from './skillGraph';
+import { ResetTracker } from './resets';
 import { Office, parsePlan, planPrompt } from './office';
 import { weeklyRates } from '../shared/office';
 import { EventEmitter } from 'node:events';
@@ -64,6 +65,7 @@ export class Monitor extends EventEmitter {
   private codex = new CodexLocalCollector();
   private chatgpt = new ChatGptUsageCollector();
   private costs = new ApiCostCollector();
+  readonly resets = new ResetTracker(path.join(dataDir(), 'reset-calendar.json'));
   private history = new QuotaHistory(path.join(dataDir(), 'quota-history.json'));
   private prices: PriceBook;
   private pricesKey = '';
@@ -148,6 +150,7 @@ export class Monitor extends EventEmitter {
     this.timers.forEach(clearInterval);
     this.timers = [];
     this.history.save(true);
+    this.resets.save(true);
   }
 
   current(): Snapshot | undefined {
@@ -414,6 +417,7 @@ export class Monitor extends EventEmitter {
       const c = this.cfg;
       const t = { warn: c.warnPercent, critical: c.criticalPercent };
       const now = Date.now();
+      void this.resets.collect();
       const remote: Promise<unknown>[] = [];
       if (now - this.lastSubFetch >= c.subscriptionPollSeconds * 1000) {
         this.lastSubFetch = now;
@@ -511,6 +515,7 @@ export class Monitor extends EventEmitter {
     this.detectTransitions(tasks, [claude, openai]);
     this.office.observe(tasks);
     const providers = [claude, openai];
+    this.resets.observe(providers);
     this.snapshot = {
       generatedAt: new Date().toISOString(),
       providers,

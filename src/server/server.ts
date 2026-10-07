@@ -323,6 +323,17 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       if (p === '/api/launch/options' && req.method === 'GET') return json(res, 200, monitor.launchOptions());
       if (p === '/api/launch' && req.method === 'POST') return json(res, 200, monitor.startTask(await readJson(req)));
 
+      if (p === '/api/resets' && req.method === 'GET') return json(res, 200, monitor.resets.view(monitor.current()?.providers ?? []));
+      if (p === '/api/resets/refresh' && req.method === 'POST') {
+        await monitor.resets.collect(true);
+        return json(res, 200, monitor.resets.view(monitor.current()?.providers ?? []));
+      }
+      if (p === '/api/resets/posts' && req.method === 'POST') {
+        const body = await readJson(req);
+        await monitor.resets.importPost(typeof body?.url === 'string' ? body.url : '');
+        return json(res, 200, monitor.resets.view(monitor.current()?.providers ?? []));
+      }
+
       // ── the office: agent teams ───────────────────────────────────────────
       if (p === '/api/office' && req.method === 'GET') return json(res, 200, monitor.office.view());
       if (p === '/api/office/teams' && req.method === 'POST') return json(res, 200, monitor.office.saveTeam(await readJson(req)));

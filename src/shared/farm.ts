@@ -68,7 +68,7 @@ export function colorsFor(rarity: Rarity): SeedColor[] {
   return [...BASE_COLORS, ...(i >= 2 ? ['black' as const] : []), ...(i >= 3 ? ['gold' as const] : []), ...(i >= 3 ? ['rainbow' as const] : [])];
 }
 
-export const TOKENS_PER_DRAW = 500_000;
+export const TOKENS_PER_DRAW = 400_000;
 /** a ten-draw costs the same as ten single draws but always holds a rare or better */
 export const MULTI_DRAW = 10;
 /** draws on the house when the farm opens */
@@ -118,6 +118,8 @@ export interface FarmState {
   startDate: string;
   /** tokens per local day, highest seen, so days rolling out of the usage history keep counting */
   days: Record<string, number>;
+  /** Fixed at creation so price changes never reduce an existing balance. */
+  welcomeTokens: number;
   spentTokens: number;
   draws: number;
   /** draws since the last legendary (or better) */
@@ -165,6 +167,7 @@ export function newFarm(today: string): FarmState {
     v: 1,
     startDate: today,
     days: {},
+    welcomeTokens: WELCOME_DRAWS * TOKENS_PER_DRAW,
     spentTokens: 0,
     draws: 0,
     pity: 0,
@@ -195,6 +198,7 @@ export function normalizeFarm(s: Partial<FarmState> | null | undefined, today: s
     ...base,
     ...s,
     v: 1,
+    welcomeTokens: Number.isFinite(s.welcomeTokens) ? Math.max(0, s.welcomeTokens!) : WELCOME_DRAWS * 500_000,
     days: s.days && typeof s.days === 'object' ? s.days : {},
     seeds: Array.isArray(s.seeds) ? s.seeds : [],
     crops: Array.isArray(s.crops) ? s.crops : [],
@@ -222,7 +226,7 @@ export function creditUsage(s: FarmState, daily: { date: string; tokens: number 
 export function farmView(s: FarmState, now = Date.now()): FarmView {
   const earnedTokens = Object.values(s.days).reduce((a, b) => a + b, 0);
   const incomeTokens = s.income.crops + s.income.fish + s.income.ads;
-  const balance = earnedTokens + incomeTokens + WELCOME_DRAWS * TOKENS_PER_DRAW - s.spentTokens;
+  const balance = earnedTokens + incomeTokens + s.welcomeTokens - s.spentTokens;
   const today = dayOf(now);
   const pond = s.pond.day === today ? s.pond : { casts: 0, free: 0 };
   const ads = s.ads.day === today ? s.ads.watched : 0;

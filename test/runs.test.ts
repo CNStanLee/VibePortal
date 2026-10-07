@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { RunOptions } from '../src/core/actions';
 
 // keep runs/config out of the real ~/.vibeportal
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vp-runs-'));
@@ -85,4 +86,43 @@ test('an instruction to a finished run continues it as one task: the new run tak
   assert.ok(!ids.includes(done.id), 'the old run makes way');
   assert.equal(m.tasks.customTasks().find((t) => t.id === `dispatch:${r.jobId}`)?.continuedFrom, done.id);
   await until(() => !m.actions.hasRunning());
+});
+
+test('Codex resumes place exec options before resume and preserve run settings', { skip: process.platform === 'win32' }, async (t) => {
+  const { ActionRunner } = await import('../src/core/actions');
+  const bin = path.join(home, 'codex-args');
+  // Capture the actual process arguments and stdin without starting a model run.
+  fs.writeFileSync(bin, `#!/usr/bin/env node\nconst fs = require('node:fs');\nconsole.log(JSON.stringify({ args: process.argv.slice(2), input: fs.readFileSync(0, 'utf8') }));\n`, { mode: 0o755 });
+  const sessionId = '11111111-1111-4111-8111-111111111111';
+  const prompt = 'Continue with "quoted text"\nand a second line';
+  const permissions: RunOptions['permission'][] = [undefined, 'auto', 'edits', 'ask', 'default'];
+  for (const kind of ['codex', 'dispatch']) {
+    for (const permission of permissions) {
+      await t.test(`${kind}, permission=${permission ?? 'omitted'}`, async () => {
+        const runner = new ActionRunner(() => {});
+        const { jobId } = runner.continue(
+          { id: 'codex-test', kind, provider: 'openai', title: 'Test', state: 'done', updatedAt: '', cwd: home },
+          sessionId, prompt, { claudeBin: '', codexBin: bin },
+          { model: 'test-model', effort: 'high', permission },
+        );
+        await until(() => !runner.hasRunning());
+        const { args, input }: { args: string[]; input: string } = JSON.parse(runner.jobOutput(jobId)!);
+        assert.equal(args[0], 'exec');
+        const resume = args.indexOf('resume');
+        assert.ok(resume > 0);
+        assert.deepEqual(args.slice(resume + 1), [sessionId, '-']);
+        assert.equal(args[args.indexOf('-m') + 1], 'test-model');
+        assert.equal(args[args.indexOf('-c') + 1], 'model_reasoning_effort="high"');
+        const sandbox = args.indexOf('--sandbox');
+        if (permission === undefined || permission === 'auto' || permission === 'edits') {
+          assert.ok(sandbox > 0 && sandbox < resume, '--sandbox belongs to exec, before resume');
+          assert.equal(args[sandbox + 1], 'workspace-write');
+        } else {
+          assert.equal(sandbox, -1, 'ask/default preserve the CLI permission settings');
+        }
+        assert.equal(input, prompt);
+        assert.equal(runner.jobList()[0].sessionId, sessionId);
+      });
+    }
+  }
 });

@@ -3,6 +3,7 @@ import { createPortal, flushSync } from 'react-dom';
 import type { ServerInfo } from '../shared/types';
 import { api, auth, desktop, setToken, useLive, type Notice } from './api';
 import { dicts, I18n, useT, type Lang } from './i18n';
+import { ResetCalendar } from './components/ResetCalendar';
 import { ProviderCard } from './components/ProviderCard';
 import { UsageChart } from './components/UsageChart';
 import { TaskList } from './components/TaskList';
@@ -257,6 +258,7 @@ export function Dashboard() {
                 <ProviderCard key={p.provider} p={p} />
               ))}
             </div>
+            <ResetCalendar snapshot={snapshot} />
             <UsageChart providers={snapshot.providers} days={Math.min(snapshot.historyDays, 60)} />
             <RemoteHostsCard remotes={snapshot.remotes ?? []} />
             <section className="card" aria-labelledby="h-active">

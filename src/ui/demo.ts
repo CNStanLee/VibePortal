@@ -1,3 +1,4 @@
+import { calendarEvents, RESET_POSTS, resetOutlook } from '../shared/resets';
 // Demo mode (?demo): the whole UI runs on made-up but realistic data, with no
 // server. Used for the README screenshots and for trying the UI out.
 import { buyBait, cast, claimAd, reel, sellCrop, sellFish, startAd, takeRod, discardCrop, displayCrop, draw, farmView, growMinutes, harvest, newFarm, plant, storeCrop, uproot, type FarmState, type Rarity, type SeedColor } from '../shared/farm';
@@ -414,6 +415,11 @@ export const demoSnapshot = () => (snap ??= snapshot());
 export function demoCall(method: string, path: string, body?: unknown): unknown {
   const p = path.replace(/\?.*$/, '');
   if (p === 'api/farm' || p.startsWith('api/farm/')) return demoFarmCall(p, body);
+  if (p === 'api/resets' || p === 'api/resets/refresh') {
+    const providers = demoSnapshot().providers.map((p) => ({ ...p, quotasObservedAt: new Date().toISOString() }));
+    return { events: calendarEvents(providers, [], RESET_POSTS), posts: RESET_POSTS, outlook: resetOutlook(RESET_POSTS), feed: { state: 'cached' } };
+  }
+  if (p === 'api/resets/posts') throw new Error('Post imports are unavailable in demo mode');
   if (p === 'api/office' || p.startsWith('api/office/')) return demoOfficeCall(method, p, body);
   if (p === 'api/snapshot' || p === 'api/refresh') return demoSnapshot();
   if (p === 'api/info') return info;
@@ -758,6 +764,7 @@ function demoOfficeCall(method: string, p: string, body: unknown): unknown {
   }
   if (tm?.[2]) {
     const team = o.teams.find((x) => x.id === tm[1])!;
+    team.cwd ||= `/home/demo/.vibeportal/workspaces/${team.id}`;
     const run: OfficeRun = { id: newOfficeId('r'), teamId: team.id, teamName: team.name, state: 'running', startedAt: new Date().toISOString(), budget: team.budget, spent: 0, nodes: team.nodes, deliverable: team.deliverable, criteria: team.criteria, progress: Object.fromEntries(team.nodes.map((n) => [n.id, { state: 'waiting' as const, grants: [...n.grants] }])) };
     o.runs.push(run);
     return run;
