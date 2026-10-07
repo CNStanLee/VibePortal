@@ -3466,6 +3466,92 @@ html.pet-page body {
     transform: rotate(-16deg);
   }
 }
+/* a finished task: rocking with laughter, hands bobbing on the belly, tears flying */
+.mascot.frog.mood-happy .m-body {
+  animation: frog-laugh 0.6s ease-in-out infinite;
+}
+.frog.mood-happy .frog-hands {
+  animation: frog-belly 0.3s ease-in-out infinite;
+}
+.frog .frog-laugh-mouth {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  animation: frog-belly-mouth 0.3s ease-in-out infinite;
+}
+.frog .frog-tear {
+  transform-box: fill-box;
+  animation: frog-tear-l 0.9s ease-out infinite;
+}
+.frog .frog-tear.r {
+  animation-name: frog-tear-r;
+}
+.frog .frog-ha text {
+  animation: frog-ha 1.2s ease-out infinite;
+}
+.frog .frog-ha text:nth-child(2) {
+  animation-delay: 0.4s;
+}
+.frog .frog-ha text:nth-child(3) {
+  animation-delay: 0.8s;
+}
+@keyframes frog-laugh {
+  0%,
+  100% {
+    transform: rotate(-5deg) translateY(0) scale(1.03, 0.97);
+  }
+  25% {
+    transform: rotate(0deg) translateY(-4px) scale(0.98, 1.02);
+  }
+  50% {
+    transform: rotate(5deg) translateY(0) scale(1.03, 0.97);
+  }
+  75% {
+    transform: rotate(0deg) translateY(-4px) scale(0.98, 1.02);
+  }
+}
+@keyframes frog-belly {
+  50% {
+    transform: translateY(2px);
+  }
+}
+@keyframes frog-belly-mouth {
+  50% {
+    transform: scaleY(0.82);
+  }
+}
+@keyframes frog-tear-l {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-7px, 6px);
+    opacity: 0;
+  }
+}
+@keyframes frog-tear-r {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(7px, 6px);
+    opacity: 0;
+  }
+}
+@keyframes frog-ha {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
 .prop-pop {
   transform-box: fill-box;
   transform-origin: center;
@@ -7702,6 +7788,21 @@ a.btn {
 
 .office-workspace { display: grid; grid-column: 1 / -1; gap: 6px; min-width: 0; }
 .office-workspace select, .office-workspace input { width: 100%; min-width: 0; }
+.workspace-toolbar, .workspace-sources, .workspace-clone-dir, .workspace-clone-action { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.workspace-toolbar, .workspace-clone-action { justify-content: space-between; flex-wrap: wrap; }
+.workspace-sources { flex-wrap: wrap; }
+.workspace-toolbar > .link, .workspace-clone-dir > .btn, .workspace-clone-action > .btn { flex-shrink: 0; white-space: nowrap; }
+.workspace-projects { max-height: 205px; }
+.workspace-projects li { padding: 0; cursor: default; }
+.workspace-project { display: grid; gap: 2px; width: 100%; min-width: 0; padding: 6px 8px; border: 0; border-radius: 6px; text-align: left; font: inherit; color: var(--ink); background: transparent; cursor: pointer; }
+.workspace-project:hover:not(:disabled) { background: var(--surface-2); }
+.workspace-project.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.workspace-project:disabled { opacity: 0.6; cursor: not-allowed; }
+.workspace-project .nt-pname { flex-wrap: wrap; font-size: 12px; }
+.workspace-project .nt-pname > span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.workspace-projects li.nt-empty { padding: 8px; }
+.workspace-target { display: grid; gap: 3px; padding: 8px; border-radius: 8px; background: var(--surface-2); overflow-wrap: anywhere; }
+.workspace-clone-action > .tiny { flex: 1; min-width: 180px; }
 
 .reset-summary { display: grid; grid-template-columns: 1fr 1.3fr 1.3fr; gap: 20px; margin: 16px 0; }
 .reset-summary > div { min-width: 0; }

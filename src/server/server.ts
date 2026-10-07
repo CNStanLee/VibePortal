@@ -14,6 +14,7 @@ import { farmCardSvg } from '../shared/farmCard';
 import { Discovery, lanAddresses, newHostId, parseRemoteTaskId } from '../core/remote';
 import { WebPush } from '../core/webpush';
 import { isDir } from '../core/projects';
+import { cloneRepository, recentRepositories } from '../core/repositories';
 
 export interface ServerOptions {
   monitor: Monitor;
@@ -322,6 +323,11 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       // ── new tasks ─────────────────────────────────────────────────────────
       if (p === '/api/launch/options' && req.method === 'GET') return json(res, 200, monitor.launchOptions());
       if (p === '/api/launch' && req.method === 'POST') return json(res, 200, monitor.startTask(await readJson(req)));
+      if (p === '/api/repositories' && req.method === 'GET') return json(res, 200, await recentRepositories());
+      if (p === '/api/repositories/clone' && req.method === 'POST') {
+        const body = await readJson(req);
+        return json(res, 200, await cloneRepository(body?.fullName, monitor.config.cloneDir));
+      }
 
       if (p === '/api/resets' && req.method === 'GET') return json(res, 200, monitor.resets.view(monitor.current()?.providers ?? []));
       if (p === '/api/resets/refresh' && req.method === 'POST') {

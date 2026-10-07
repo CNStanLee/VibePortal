@@ -6,7 +6,7 @@ import type { FarmView } from '../shared/farm';
 export type FarmAction = 'draw' | 'plant' | 'harvest' | 'uproot' | 'store' | 'display' | 'discard' | 'sell' | 'sell-fish' | 'rod' | 'bait' | 'cast' | 'reel' | 'ad' | 'ad-claim';
 import type { FarmProfile, FarmSocialView, FriendFarm } from '../shared/farmSocial';
 import type { OfficeRun, OfficeTeam, OfficeView } from '../shared/office';
-import type { LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';
+import type { GitRepositories, LaunchAgentInfo, LaunchProject, LaunchOptions, LaunchRequest, OfficialRemoteState, TaskHistory, PublicSettings, ResourceSnapshot, ServerInfo, SettingsPatch, SkillDetail, SkillGraph, SkillInfo, Snapshot, TaskContext } from '../shared/types';
 
 export interface Notice {
   title: string;
@@ -48,11 +48,17 @@ export function setRunOverride(taskId: string, o: RunOverride) {
   }
 }
 
+/** The efforts a model takes (the agent's whole list when unknown); no model = the CLI's default one. */
+export function effortsFor(info: LaunchAgentInfo | undefined, model?: string): string[] {
+  const m = model || info?.defaultModel;
+  return (m && info?.modelEfforts?.[m]) || info?.efforts || [];
+}
+
 let launchCache: Promise<LaunchOptions> | undefined;
 let launchCacheAt = 0;
 /** Launch options change rarely (projects, installed CLIs): share one fetch for a minute. */
-export function cachedLaunchOptions(): Promise<LaunchOptions> {
-  if (!launchCache || Date.now() - launchCacheAt > 60_000) {
+export function cachedLaunchOptions(fresh = false): Promise<LaunchOptions> {
+  if (fresh || !launchCache || Date.now() - launchCacheAt > 60_000) {
     launchCacheAt = Date.now();
     launchCache = api.launchOptions().catch((e) => {
       launchCache = undefined;
@@ -234,6 +240,12 @@ export const api = {
   officeRun: (teamId: string) => call<OfficeRun>('POST', `api/office/teams/${encodeURIComponent(teamId)}/run`, {}),
   officeStop: (runId: string) => call<OfficeRun>('POST', `api/office/runs/${encodeURIComponent(runId)}/stop`, {}),
   launchOptions: () => call<LaunchOptions>('GET', 'api/launch/options'),
+  repositories: () => call<GitRepositories>('GET', 'api/repositories'),
+  cloneRepository: async (fullName: string) => {
+    const project = await call<LaunchProject>('POST', 'api/repositories/clone', { fullName });
+    launchCache = undefined;
+    return project;
+  },
   launch: (r: LaunchRequest) => call<{ jobId: string; taskId: string }>('POST', 'api/launch', r),
   skills: (fresh = false) => call<SkillInfo[]>('GET', `api/skills${fresh ? '?fresh=1' : ''}`),
   skill: (id: string) => call<SkillDetail>('GET', `api/skills/${id}`),

@@ -65,6 +65,10 @@ export function SettingsPage({ info }: { info: ServerInfo | null }) {
           <Field label={t.codexDir}>
             <input value={v.codexDir} onChange={(e) => set({ codexDir: e.target.value })} spellCheck={false} />
           </Field>
+          <Field label={t.cloneDir}>
+            <input value={v.cloneDir ?? ''} onChange={(e) => set({ cloneDir: e.target.value })} spellCheck={false} />
+            <span className="muted tiny">{t.cloneDirHelp}</span>
+          </Field>
           <Field label={t.machineName}>
             <input value={v.machineName} onChange={(e) => set({ machineName: e.target.value })} spellCheck={false} />
           </Field>

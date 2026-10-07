@@ -58,7 +58,7 @@ function fileUri(uri: unknown): string | undefined {
  * Folders a new agent task can start in: repos the agents already worked in
  * (most recent first) merged with VS Code's folders. Only existing directories.
  */
-export function launchProjects(usage: { claude: ProjectUsage[]; codex: ProjectUsage[] }): LaunchProject[] {
+export function launchProjects(usage: { claude: ProjectUsage[]; codex: ProjectUsage[] }, cloneDir?: string): LaunchProject[] {
   const map = new Map<string, LaunchProject>();
   const add = (p: string, src: LaunchProject['sources'][number], lastUsed?: string) => {
     let e = map.get(p);
@@ -75,6 +75,14 @@ export function launchProjects(usage: { claude: ProjectUsage[]; codex: ProjectUs
     if (!f.open && isTemp(f.path)) continue;
     // folder mtimes churn (caches, temp files); the git index only moves when someone works in the repo
     add(f.path, f.open ? 'open' : 'vscode', f.open ? new Date().toISOString() : mtime(path.join(f.path, '.git', 'index')));
+  }
+  if (cloneDir) {
+    try {
+      for (const entry of fs.readdirSync(cloneDir, { withFileTypes: true })) {
+        const dir = path.join(cloneDir, entry.name);
+        if (entry.isDirectory() && fs.existsSync(path.join(dir, '.git'))) add(dir, 'clone', mtime(path.join(dir, '.git', 'index')) ?? mtime(dir));
+      }
+    } catch { /* the clone directory may not exist yet */ }
   }
   return [...map.values()].sort((a, b) => (b.lastUsed ?? '').localeCompare(a.lastUsed ?? '')).slice(0, 200);
 }

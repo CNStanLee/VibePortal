@@ -370,6 +370,7 @@ const info: ServerInfo = {
 const settings: PublicSettings = {
   claudeDir: '/home/dev/.claude',
   codexDir: '/home/dev/.codex',
+  cloneDir: '/home/dev/Projects',
   historyDays: 30,
   pollSeconds: 15,
   subscriptionPollSeconds: 300,
@@ -423,8 +424,21 @@ export function demoCall(method: string, path: string, body?: unknown): unknown 
   if (p === 'api/office' || p.startsWith('api/office/')) return demoOfficeCall(method, p, body);
   if (p === 'api/snapshot' || p === 'api/refresh') return demoSnapshot();
   if (p === 'api/info') return info;
-  if (p === 'api/settings') return settings;
+  if (p === 'api/settings') {
+    if (method === 'PUT' && typeof (body as { cloneDir?: string })?.cloneDir === 'string') settings.cloneDir = (body as { cloneDir: string }).cloneDir.replace(/^~(?=\/|$)/, '/home/dev');
+    return settings;
+  }
   if (p === 'api/launch/options') return launch;
+  if (p === 'api/repositories') return {
+    state: 'ready',
+    repositories: ['acme-web', 'ml-pipeline', 'infra', 'docs-site'].map((name, i) => ({ fullName: `acme/${name}`, description: ['Customer dashboard and web app', 'Training and evaluation pipelines', 'Infrastructure and deployment', 'Product documentation'][i], private: i !== 3, pushedAt: ago(i * 3600) })),
+  };
+  if (p === 'api/repositories/clone' && method === 'POST') {
+    const name = String((body as { fullName: string }).fullName).split('/')[1];
+    const project = { path: `${settings.cloneDir}/${name}`, name, sources: ['clone' as const], git: true, lastUsed: ago(0) };
+    if (!launch.projects.some((p) => p.path === project.path)) launch.projects.unshift(project);
+    return project;
+  }
   if (p === 'api/resources') return resources();
   if (p === 'api/skills') return skills;
   if (p === 'api/skills/graph') return demoSkillGraph();

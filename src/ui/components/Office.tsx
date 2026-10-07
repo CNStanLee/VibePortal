@@ -53,6 +53,7 @@ import { fmtTokens, fmtUsd, relTime } from '../format';
 import { Mascot, type CrabScene, type MascotKind } from './Mascots';
 import { ClaudeMark, CodexMark } from './Brand';
 import { OfficeFlows } from './OfficeFlows';
+import { OfficeWorkspace } from './OfficeWorkspace';
 
 const ROLE_KEY: Record<OfficeRole, keyof Dict> = {
   lead: 'roleLead',
@@ -138,7 +139,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   const [edge, setEdge] = useState<string | null>(null);
   const [opts, setOpts] = useState<LaunchOptions | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState<'' | 'plan' | 'run' | 'stop'>('');
+  const [busy, setBusy] = useState<'' | 'plan' | 'run' | 'stop' | 'clone'>('');
   const [zoom, setZoom] = useState(1);
   const [now, setNow] = useState(Date.now());
   const [link, setLink] = useState<{ from: string; x: number; y: number; up?: boolean } | null>(null);
@@ -367,7 +368,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
   };
 
   const plan = async () => {
-    if (!team?.goal.trim()) return;
+    if (!team?.goal.trim() || locked || busy) return;
     if (nodes.length && !confirm(t.officePlanReplace)) return;
     setBusy('plan');
     setError('');
@@ -387,7 +388,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
     }
   };
   const start = async () => {
-    if (!team) return;
+    if (!team || locked || busy) return;
     setBusy('run');
     setError('');
     try {
@@ -480,6 +481,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
               <button
                 key={x.id}
                 role="tab"
+                disabled={!!busy}
                 aria-selected={x.id === team.id}
                 className={`chip ${x.id === team.id ? 'on' : ''}`}
                 onClick={() => {
@@ -491,7 +493,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                 {x.name}
               </button>
             ))}
-            <button className="chip office-add-team" onClick={newTeam}>
+            <button className="chip office-add-team" onClick={newTeam} disabled={!!busy}>
               + {t.officeNewTeam}
             </button>
           </div>
@@ -585,17 +587,9 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
               <span className="nt-label">{t.officeTeamName}</span>
               <input value={team.name} disabled={locked} onChange={(e) => update((x) => ({ ...x, name: e.target.value }))} />
             </label>
-            <div className="office-workspace">
-              <label htmlFor="office-repo" className="nt-label">{t.officeFolder}</label>
-              <select id="office-repo" value={team.cwd || ''} disabled={locked || !!busy} onChange={(e) => update((x) => ({ ...x, cwd: e.target.value || undefined }))}>
-                <option value="">{t.officeAutoFolder}</option>
-                {team.cwd && !opts?.projects.some((p) => p.path === team.cwd) && <option value={team.cwd}>{team.cwd}</option>}
-                {opts?.projects.map((p) => <option key={p.path} value={p.path}>{p.git ? '⎇ ' : ''}{p.name} · {p.path}</option>)}
-              </select>
-              <label className="nt-label" htmlFor="office-path">{t.officeCustomFolder}</label>
-              <input id="office-path" value={team.cwd ?? ''} disabled={locked || !!busy} placeholder={t.officeFolderPh} spellCheck={false} onChange={(e) => update((x) => ({ ...x, cwd: e.target.value || undefined }))} />
-              <p className="muted tiny">{team.cwd ? t.officeExistingHelp : t.officeAutoHelp}</p>
-            </div>
+            <OfficeWorkspace key={team.id} cwd={team.cwd} opts={opts} disabled={locked || !!busy}
+              onChange={(cwd) => update((x) => ({ ...x, cwd: cwd || undefined }))}
+              onOptions={setOpts} onBusy={(cloning) => setBusy(cloning ? 'clone' : '')} />
             <label>
               <span className="nt-label">{t.officePerms}</span>
               <select
@@ -617,7 +611,7 @@ export function OfficePage({ snapshot }: { snapshot: Snapshot }) {
                 ))}
               </select>
             </label>
-            <button className="btn ghost danger office-del" onClick={() => void removeTeam()} disabled={locked}>
+            <button className="btn ghost danger office-del" onClick={() => void removeTeam()} disabled={locked || !!busy}>
               {t.officeDeleteTeam}
             </button>
           </div>

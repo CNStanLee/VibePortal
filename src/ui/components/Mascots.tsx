@@ -588,10 +588,20 @@ const FROG_BODY = 'M60 12 C41 12 31 27 31 44 C31 55 26 64 22 77 C17 94 24 112 60
 function FrogEye({ cx, mood }: { cx: number; mood: PetMood }) {
   const cy = 36;
   const ring = <circle cx={cx} cy={cy} r="9.5" fill="var(--frog-eye)" stroke="var(--frog-line)" strokeWidth="1.4" />;
-  if (mood === 'sleeping' || mood === 'happy')
+  // laughing too hard to look: eyes squeezed into > <, tears of joy flying off the outer corners
+  if (mood === 'happy') {
+    const d = cx < 60 ? 1 : -1;
+    return (
+      <g>
+        <path d={`M${cx - 6 * d} ${cy - 5} L${cx + 5 * d} ${cy} L${cx - 6 * d} ${cy + 5}`} fill="none" stroke="var(--frog-ink)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path className={`frog-tear ${d > 0 ? 'l' : 'r'}`} d={`M${cx - 9 * d} ${cy + 2} c${-3 * d} 2 ${-4 * d} 5 ${-2 * d} 7 c${2 * d} 2 ${5 * d} 0 ${4 * d} -3 Z`} fill="#9fd4ff" stroke="var(--frog-line)" strokeWidth="0.8" />
+      </g>
+    );
+  }
+  if (mood === 'sleeping')
     return (
       <path
-        d={mood === 'happy' ? `M${cx - 7} ${cy + 3} Q${cx} ${cy - 6} ${cx + 7} ${cy + 3}` : `M${cx - 7} ${cy} Q${cx} ${cy + 6} ${cx + 7} ${cy}`}
+        d={`M${cx - 7} ${cy} Q${cx} ${cy + 6} ${cx + 7} ${cy}`}
         fill="none"
         stroke="var(--frog-ink)"
         strokeWidth="2.6"
@@ -618,7 +628,13 @@ function FrogEye({ cx, mood }: { cx: number; mood: PetMood }) {
 function FrogMouth({ mood }: { mood: PetMood }) {
   switch (mood) {
     case 'happy':
-      return <path d="M50 49 Q60 62 70 49 Z" fill="#c9534f" stroke="var(--frog-ink)" strokeWidth="1.4" strokeLinejoin="round" />;
+      // a big open belly laugh, tongue showing
+      return (
+        <g className="frog-laugh-mouth">
+          <path d="M45 47 Q60 74 75 47 Z" fill="#9b3b39" stroke="var(--frog-ink)" strokeWidth="1.5" strokeLinejoin="round" />
+          <ellipse cx="60" cy="57.5" rx="6" ry="2.8" fill="#ff8f8a" />
+        </g>
+      );
     case 'waiting':
       return <ellipse cx="60" cy="52" rx="3" ry="3.4" fill="#c9534f" stroke="var(--frog-ink)" strokeWidth="1.2" />;
     case 'alert':
@@ -646,7 +662,11 @@ function FrogHand({ x, y, flip = false }: { x: number; y: number; flip?: boolean
 
 export function MilkFrogSprite({ mood, size }: { mood: PetMood; size: number }) {
   const typing = mood === 'working';
-  const wave = mood === 'waiting' || mood === 'happy';
+  const wave = mood === 'waiting';
+  // a finished task: both hands clutch the belly while it laughs
+  const laugh = mood === 'happy';
+  const leftArm = typing ? 'M32 64 C28 80 34 96 42 104' : laugh ? 'M32 64 C22 78 30 92 46 92' : 'M32 64 C26 76 32 86 42 86';
+  const rightArm = typing ? 'M88 64 C92 80 86 96 78 104' : laugh ? 'M88 64 C98 78 90 92 74 92' : 'M88 64 C94 76 88 86 78 86';
   return (
     <svg className={`mascot frog mood-${mood}`} width={size * (120 / 130)} height={size} viewBox="0 0 120 130" role="img" aria-label={`Milk frog: ${mood}`}>
       <defs>
@@ -676,18 +696,18 @@ export function MilkFrogSprite({ mood, size }: { mood: PetMood; size: number }) 
         <FrogEye cx={38} mood={mood} />
         <FrogEye cx={82} mood={mood} />
         {mood !== 'sleeping' && (
-          <g fill="#ff9f8a" opacity={mood === 'alert' ? 0.75 : 0.45}>
+          <g fill="#ff9f8a" opacity={mood === 'alert' || laugh ? 0.75 : 0.45}>
             <ellipse cx="40" cy="51" rx="4.5" ry="2.4" />
             <ellipse cx="80" cy="51" rx="4.5" ry="2.4" />
           </g>
         )}
         <FrogMouth mood={mood} />
         {typing && <Laptop />}
-        {/* arms: resting on the belly, typing, or one waving */}
+        {/* arms: resting on the belly, typing, one waving, or both holding the belly */}
         <g className="frog-hands">
           <g fill="var(--frog)" stroke="var(--frog-line)" strokeWidth="1.4" strokeLinecap="round">
-            <path className="frog-arm l" d={typing ? 'M32 64 C28 80 34 96 42 104' : 'M32 64 C26 76 32 86 42 86'} fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
-            <path className="frog-arm l" d={typing ? 'M32 64 C28 80 34 96 42 104' : 'M32 64 C26 76 32 86 42 86'} fill="none" stroke="var(--frog)" strokeWidth="7" />
+            <path className="frog-arm l" d={leftArm} fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
+            <path className="frog-arm l" d={leftArm} fill="none" stroke="var(--frog)" strokeWidth="7" />
             {wave ? (
               <>
                 <path d="M89 64 C100 62 106 54 106 46" fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
@@ -695,22 +715,30 @@ export function MilkFrogSprite({ mood, size }: { mood: PetMood; size: number }) 
               </>
             ) : (
               <>
-                <path d={typing ? 'M88 64 C92 80 86 96 78 104' : 'M88 64 C94 76 88 86 78 86'} fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
-                <path d={typing ? 'M88 64 C92 80 86 96 78 104' : 'M88 64 C94 76 88 86 78 86'} fill="none" stroke="var(--frog)" strokeWidth="7" />
+                <path d={rightArm} fill="none" stroke="var(--frog-line)" strokeWidth="9.6" />
+                <path d={rightArm} fill="none" stroke="var(--frog)" strokeWidth="7" />
               </>
             )}
           </g>
-          <FrogHand x={typing ? 43 : 44} y={typing ? 103 : 85} />
+          <FrogHand x={typing ? 43 : laugh ? 49 : 44} y={typing ? 103 : laugh ? 91 : 85} />
           {wave ? (
             <g className="frog-wave">
               <FrogHand x={106} y={42} flip />
             </g>
           ) : (
-            <FrogHand x={typing ? 77 : 76} y={typing ? 103 : 85} flip />
+            <FrogHand x={typing ? 77 : laugh ? 71 : 76} y={typing ? 103 : laugh ? 91 : 85} flip />
           )}
         </g>
       </g>
-      <WhaleProps mood={mood} />
+      {laugh ? (
+        <g className="frog-ha" fill="var(--pet-prop)" fontWeight="900" fontFamily="system-ui, sans-serif">
+          <text x="92" y="24" fontSize="13">HA</text>
+          <text x="100" y="10" fontSize="10">HA</text>
+          <text x="4" y="22" fontSize="11">HA</text>
+        </g>
+      ) : (
+        <WhaleProps mood={mood} />
+      )}
     </svg>
   );
 }

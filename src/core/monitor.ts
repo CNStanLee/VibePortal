@@ -1,6 +1,7 @@
 import { TaskArchive } from './archive';
 import { SkillGraphStore } from './skillGraph';
 import { ResetTracker } from './resets';
+import { ModelCatalog, catalogEfforts, type AgentCatalog } from './models';
 import { Office, parsePlan, planPrompt } from './office';
 import { weeklyRates } from '../shared/office';
 import { EventEmitter } from 'node:events';
@@ -66,6 +67,7 @@ export class Monitor extends EventEmitter {
   private chatgpt = new ChatGptUsageCollector();
   private costs = new ApiCostCollector();
   readonly resets = new ResetTracker(path.join(dataDir(), 'reset-calendar.json'));
+  private models = new ModelCatalog(path.join(dataDir(), 'models.json'));
   private history = new QuotaHistory(path.join(dataDir(), 'quota-history.json'));
   private prices: PriceBook;
   private pricesKey = '';
@@ -254,7 +256,7 @@ export class Monitor extends EventEmitter {
     }
     const sid = task.kind === 'dispatch' ? task.sessionId : sessionIdOf(task);
     if (!sid || !task.canContinue) throw httpError(400, 'This task cannot be continued');
-    const r = this.actions.continue(task, sid, prompt, { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, run);
+    const r = this.actions.continue(task, sid, prompt, { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, this.keepSessionModel(task, sid, run));
     if (task.provider) this.dispatchProvider.set(r.jobId, task.provider);
     // the new run carries the conversation on: a background run it resumes makes way for it (one
     // conversation, one task), and cards / lists that showed the old task follow it
@@ -262,6 +264,18 @@ export class Monitor extends EventEmitter {
     else this.tasks.linkContinued(r.jobId, task.id);
     this.poke();
     return r;
+  }
+
+  /**
+   * `codex exec resume` without -m switches to config.toml's model, which may be one this
+   * Codex CLI or account can't use (the turn then fails at once). Unless another model is
+   * picked, go on with the model and effort that last answered in this conversation.
+   */
+  private keepSessionModel(task: TaskInfo, sid: string, run: RunOptions): RunOptions {
+    if (task.kind !== 'codex' && task.provider !== 'openai') return run;
+    const w = this.codex.sessionStats.workload(sid);
+    const model = w?.model && w.model !== 'unknown' ? w.model : undefined;
+    return { ...run, model: run.model ?? model, effort: run.effort ?? w?.effort };
   }
 
   /** Takes back the instructions queued on a busy background run. */
@@ -302,7 +316,7 @@ export class Monitor extends EventEmitter {
     const task = this.tasks.customTasks().find((t) => t.id === `dispatch:${jobId}`);
     try {
       if (!task?.sessionId) throw new Error('its conversation could not be found');
-      const r = this.actions.continue({ ...task, alive: false }, task.sessionId, q.prompts.join('\n\n'), { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, q.run);
+      const r = this.actions.continue({ ...task, alive: false }, task.sessionId, q.prompts.join('\n\n'), { claudeBin: this.cfg.claudeBin, codexBin: this.cfg.codexBin }, this.keepSessionModel(task, task.sessionId, q.run));
       if (task.provider) this.dispatchProvider.set(r.jobId, task.provider);
       this.tasks.handOver(task.id, r.jobId);
     } catch (e) {
@@ -367,19 +381,24 @@ export class Monitor extends EventEmitter {
     const claudeDefaults = readClaudeDefaults(c.claudeDir);
     const codexDefaults = readCodexDefaults(c.codexDir);
     const seen = (models: string[], keep: (m: string) => boolean) => models.filter(keep).sort();
+    const claudeList = this.models.get('claude');
+    const codexList = this.models.get('codex');
     return {
-      projects: launchProjects({ claude: this.claudeLocal.ledger.projects(days), codex: this.codex.ledger.projects(days) }),
+      projects: launchProjects({ claude: this.claudeLocal.ledger.projects(days), codex: this.codex.ledger.projects(days) }, c.cloneDir),
       agents: {
         claude: {
           available: !!resolveBin('claude', c.claudeBin),
-          models: unique(['fable', 'opus', 'sonnet', 'haiku', ...seen(this.claudeLocal.ledger.models(), (m) => m.startsWith('claude-'))]),
+          models: unique(['fable', 'opus', 'sonnet', 'haiku', ...(claudeList?.models.map((m) => m.id) ?? seen(this.claudeLocal.ledger.models(), (m) => m.startsWith('claude-')))]),
           efforts: CLAUDE_EFFORTS,
+          ...listed(claudeList, CLAUDE_EFFORTS),
           ...claudeDefaults,
         },
         codex: {
           available: !!resolveBin('codex', c.codexBin),
-          models: unique([...(codexDefaults.defaultModel ? [codexDefaults.defaultModel] : []), ...seen(this.codex.ledger.models(), (m) => m !== 'unknown')]),
-          efforts: CODEX_EFFORTS,
+          // the provider's list leaves out what the installed CLI is too old for (a default it can't run included)
+          models: codexList?.models.map((m) => m.id) ?? unique([...(codexDefaults.defaultModel ? [codexDefaults.defaultModel] : []), ...seen(this.codex.ledger.models(), (m) => m !== 'unknown')]),
+          efforts: catalogEfforts(codexList) ?? CODEX_EFFORTS,
+          ...listed(codexList),
           ...codexDefaults,
         },
       },
@@ -418,6 +437,7 @@ export class Monitor extends EventEmitter {
       const t = { warn: c.warnPercent, critical: c.criticalPercent };
       const now = Date.now();
       void this.resets.collect();
+      void this.models.refresh(c);
       const remote: Promise<unknown>[] = [];
       if (now - this.lastSubFetch >= c.subscriptionPollSeconds * 1000) {
         this.lastSubFetch = now;
@@ -688,6 +708,17 @@ function readCodexDefaults(codexDir: string): { defaultModel?: string; defaultEf
 }
 
 const unique = (xs: string[]) => [...new Set(xs)];
+
+/** Per-model efforts (only ones the CLI takes) and the list's age, for the pickers. */
+function listed(list: AgentCatalog | undefined, allowed?: string[]): { modelEfforts?: Record<string, string[]>; modelsUpdatedAt?: string } {
+  if (!list) return {};
+  const modelEfforts: Record<string, string[]> = {};
+  for (const m of list.models) {
+    const e = m.efforts?.filter((x) => !allowed || allowed.includes(x));
+    if (e?.length) modelEfforts[m.id] = e;
+  }
+  return { modelEfforts, modelsUpdatedAt: list.fetchedAt };
+}
 
 export function sessionIdOf(task: TaskInfo): string | undefined {
   const m = /^(claude|codex):(.+)$/.exec(task.id);

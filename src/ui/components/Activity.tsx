@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ActivityItem, ActivityVerb, LaunchOptions, TaskInfo, TaskPlan } from '../../shared/types';
-import { cachedLaunchOptions, runOverride, setRunOverride, type RunOverride } from '../api';
+import { cachedLaunchOptions, effortsFor, runOverride, setRunOverride, type RunOverride } from '../api';
 import { fmt, useT, type Dict } from '../i18n';
 
 /*
@@ -176,7 +176,7 @@ export function ModelChip({ task, editable = true }: { task: TaskInfo; editable?
                 {t.current}
                 {w?.effort ? ` (${w.effort})` : ''}
               </option>
-              {(info?.efforts ?? []).map((m) => (
+              {effortsFor(info, ov.model ?? w?.model).map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>

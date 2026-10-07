@@ -306,6 +306,8 @@ export type TunnelProvider = 'ngrok' | 'tailscale' | 'localhost.run' | 'pinggy' 
 export interface PublicSettings {
   claudeDir: string;
   codexDir: string;
+  /** Parent directory for repositories cloned on the VibePortal host. */
+  cloneDir: string;
   historyDays: number;
   pollSeconds: number;
   subscriptionPollSeconds: number;
@@ -404,8 +406,8 @@ export type LaunchAgent = 'claude' | 'codex';
 export interface LaunchProject {
   path: string;
   name: string;
-  /** where we know it from: agent history, a VS Code window that is open now, or VS Code's folder list */
-  sources: ('claude' | 'codex' | 'open' | 'vscode')[];
+  /** Agent/editor history, open windows, or a repo in the configured clone directory. */
+  sources: ('claude' | 'codex' | 'open' | 'vscode' | 'clone')[];
   lastUsed?: string;
   git: boolean;
 }
@@ -415,11 +417,28 @@ export interface LaunchOptions {
   agents: Record<LaunchAgent, LaunchAgentInfo>;
 }
 
+export interface GitRepository {
+  fullName: string;
+  description: string;
+  private: boolean;
+  pushedAt?: string;
+}
+
+export interface GitRepositories {
+  repositories: GitRepository[];
+  /** Listing failures do not prevent choosing a local project. */
+  state: 'ready' | 'unavailable';
+}
+
 export interface LaunchAgentInfo {
   available: boolean;
-  /** aliases first, then models seen in this machine's logs */
+  /** the provider's current list for this login (refreshed hourly; Codex: what the installed CLI can run), else models seen in this machine's logs; Claude's aliases first */
   models: string[];
   efforts: string[];
+  /** the efforts each listed model takes, when the provider says */
+  modelEfforts?: Record<string, string[]>;
+  /** when the model list was last fetched from the provider */
+  modelsUpdatedAt?: string;
   /** what the CLI uses when nothing is chosen (from its own settings) */
   defaultModel?: string;
   defaultEffort?: string;

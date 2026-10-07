@@ -57,7 +57,7 @@ export function resolveBin(name: 'claude' | 'codex' | 'code' | 'cloudflared' | '
 }
 
 /** Windows .cmd shims can't be spawned directly; route them through cmd. Only fixed flags, ids and paths reach this command line — prompts go via stdin. */
-function spawnCli(bin: string, args: string[], opts: SpawnOptions & { cwd: string }) {
+export function spawnCli(bin: string, args: string[], opts: SpawnOptions & { cwd: string }) {
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin)) {
     const quoted = [bin, ...args].map((a) => `"${a.replace(/"/g, '""')}"`).join(' ');
     return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${quoted}"`], { ...opts, windowsVerbatimArguments: true });
@@ -260,7 +260,8 @@ export function cleanRunOptions(agent: 'claude' | 'codex', o: any): RunOptions {
     out.model = o.model.trim();
   }
   if (typeof o?.effort === 'string' && o.effort) {
-    if (!(agent === 'claude' ? CLAUDE_EFFORTS : CODEX_EFFORTS).includes(o.effort)) throw httpError(400, 'invalid effort level');
+    // newer Codex models also take max / ultra (the model list says which)
+    if (!(agent === 'claude' ? CLAUDE_EFFORTS : [...CODEX_EFFORTS, 'max', 'ultra']).includes(o.effort)) throw httpError(400, 'invalid effort level');
     out.effort = o.effort;
   }
   if (['auto', 'ask', 'edits', 'default'].includes(o?.permission)) out.permission = o.permission;

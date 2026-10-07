@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { LaunchAgent, LaunchOptions, LaunchPermission, LaunchProject, SkillInfo } from '../../shared/types';
-import { api, cachedLaunchOptions } from '../api';
+import { api, cachedLaunchOptions, effortsFor } from '../api';
 import { fmt, useT, type Dict } from '../i18n';
 import { ClaudeMark, CodexMark } from './Brand';
 import { shortPath } from '../format';
@@ -28,7 +28,7 @@ function saveLast(l: Last) {
   }
 }
 
-const SRC_KEY: Record<LaunchProject['sources'][number], keyof Dict> = { open: 'srcOpen', vscode: 'srcVscode', claude: 'srcClaude', codex: 'srcCodex' };
+export const PROJECT_SOURCE_KEY: Record<LaunchProject['sources'][number], keyof Dict> = { open: 'srcOpen', vscode: 'srcVscode', claude: 'srcClaude', codex: 'srcCodex', clone: 'srcClone' };
 
 /**
  * Start a new Claude Code / Codex session in a repo or VS Code folder, with a
@@ -171,7 +171,7 @@ export function NewTask({
               {p.name}
               {p.sources.map((s) => (
                 <span key={s} className={`nt-src src-${s}`}>
-                  {t[SRC_KEY[s]]}
+                  {t[PROJECT_SOURCE_KEY[s]]}
                 </span>
               ))}
             </span>
@@ -204,7 +204,7 @@ export function NewTask({
               {t.byDefault}
               {info?.defaultEffort ? ` (${info.defaultEffort})` : ''}
             </option>
-            {info?.efforts.map((m) => (
+            {effortsFor(info, model).map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>

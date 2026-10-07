@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { normalizeCloneDir } from './repositories';
 import type { ClaudePet, CodexPet, PetCharacter, PublicSettings, RemoteHostConfig, SettingsPatch, TunnelProvider } from '../shared/types';
 
 export interface Config {
   claudeDir: string;
   codexDir: string;
+  cloneDir: string;
   historyDays: number;
   pollSeconds: number;
   subscriptionPollSeconds: number;
@@ -56,6 +58,7 @@ function defaults(): Config {
   return {
     claudeDir: process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'),
     codexDir: process.env.CODEX_HOME || path.join(home, '.codex'),
+    cloneDir: path.join(home, 'Projects'),
     historyDays: 30,
     pollSeconds: 15,
     subscriptionPollSeconds: 300,
@@ -115,6 +118,7 @@ export function toPublic(cfg: Config): PublicSettings {
   return {
     claudeDir: cfg.claudeDir,
     codexDir: cfg.codexDir,
+    cloneDir: cfg.cloneDir,
     historyDays: cfg.historyDays,
     pollSeconds: cfg.pollSeconds,
     subscriptionPollSeconds: cfg.subscriptionPollSeconds,
@@ -166,6 +170,7 @@ export function applyPatch(cfg: Config, p: SettingsPatch): Config {
   const next: Config = { ...cfg, pet: { ...cfg.pet } };
   if (typeof p.claudeDir === 'string' && p.claudeDir.trim()) next.claudeDir = p.claudeDir.trim();
   if (typeof p.codexDir === 'string' && p.codexDir.trim()) next.codexDir = p.codexDir.trim();
+  if (typeof p.cloneDir === 'string') next.cloneDir = normalizeCloneDir(p.cloneDir);
   next.historyDays = clamp(p.historyDays, 1, 365, cfg.historyDays);
   next.pollSeconds = clamp(p.pollSeconds, 5, 600, cfg.pollSeconds);
   // the subscription endpoint is shared with Claude Code itself — don't hammer it
